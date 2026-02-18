@@ -7,11 +7,6 @@
  * - Each address claims independently with claim()
  * - No separate RevenueManager deploy needed
  * 
- * NOTE: We bypass flaunchIPFSWithSplitManager() due to an SDK bug where
- * it encodes an `ownerShare` field that the contract doesn't expect,
- * causing revert #1002. Instead we encode initializeData ourselves
- * and call flaunchIPFS() with treasuryManagerParams directly.
- * 
  * Install: npm install @flaunch/sdk viem
  */
 
@@ -32,16 +27,6 @@ interface PoolCreatedEventData {
 
 // Platform treasury — receives 30% of fees
 const ALIFE_TREASURY = (process.env.NEXT_PUBLIC_ALIFE_TREASURY || "0xA660a38f40a519F2E351Cc9A5CA2f5feE1a9BE0D") as `0x${string}`;
-
-// AddressFeeSplitManager on Base (from SDK addresses.ts)
-const ADDRESS_FEE_SPLIT_MANAGER = "0xfAB4BA48a322Efc8b25815448BE6018D211e89f3" as `0x${string}`;
-
-// 5 decimal precision: 100% = 10_000_000
-const VALID_SHARE_TOTAL = BigInt(10000000);
-
-// Creator gets 70%, platform gets 30%
-const CREATOR_SHARE_PERCENT = 70;
-const PLATFORM_SHARE_PERCENT = 30;
 
 // ============================================
 // CLIENT SETUP
@@ -96,66 +81,13 @@ export interface LaunchResult {
 }
 
 /**
- * Encode initializeData for AddressFeeSplitManager
- * Matches the contract's actual InitializeParams struct:
- *   struct InitializeParams {
- *     uint creatorShare;          // 5dp percentage
- *     RecipientShare[] recipientShares;
- *   }
- *   struct RecipientShare {
- *     address recipient;
- *     uint share;                 // 5dp percentage
- *   }
+ * Flaunch a token for a new Alive Agent.
  * 
- * NOTE: The SDK's flaunchWithSplitManager() encodes an extra `ownerShare`
- * field that doesn't exist in the contract struct, causing revert #1002.
- * This function encodes it correctly.
- */
-function encodeAddressFeeSplitInitData(
-  creatorSharePercent: number,
-  recipients: { address: `0x${string}`; percent: number }[]
-): `0x${string}` {
-  const creatorShare = (BigInt(creatorSharePercent) * VALID_SHARE_TOTAL) / BigInt(100);
-
-  const recipientShares = recipients.map((r) => ({
-    recipient: r.address,
-    share: (BigInt(r.percent) * VALID_SHARE_TOTAL) / BigInt(100),
-  }));
-
-  return encodeAbiParameters(
-    [
-      {
-        type: "tuple",
-        name: "params",
-        components: [
-          { type: "uint256", name: "creatorShare" },
-          {
-            type: "tuple[]",
-            name: "recipientShares",
-            components: [
-              { type: "address", name: "recipient" },
-              { type: "uint256", name: "share" },
-            ],
-          },
-        ],
-      },
-    ],
-    [
-      {
-        creatorShare,
-        recipientShares,
-      },
-    ]
-  );
-}
-
-/**
- * Flaunch a token for a new Alive Agent
+ * Uses flaunchIPFSWithSplitManager exactly as documented:
+ * https://www.npmjs.com/package/@flaunch/sdk (search "Flaunch with Address Fee Splits")
  * 
- * Bypasses flaunchIPFSWithSplitManager (SDK bug) and instead calls
- * flaunchIPFS with manually encoded treasuryManagerParams.
- * 
- * Creator gets 70% of fees, ALiFe treasury gets 30%
+ * Creator gets 70%, platform (ALIFE_TREASURY) gets 30%.
+ * Per SDK docs: creatorSplitPercent + sum of splitReceivers percent = 100
  */
 export async function flaunchAgentToken(
   walletClient: WalletClient,
@@ -164,29 +96,32 @@ export async function flaunchAgentToken(
   const flaunch = createFlaunchSDK(walletClient);
   const flaunchRead = createFlaunchReadSDK();
 
-  // Encode the split manager init data ourselves (bypassing SDK bug)
-  const initializeData = encodeAddressFeeSplitInitData(
-    CREATOR_SHARE_PERCENT, // 70% to creator
-    [{ address: ALIFE_TREASURY, percent: PLATFORM_SHARE_PERCENT }] // 30% to platform
-  );
-
-  const launchParams = {
+  // Exactly matching the SDK docs example pattern:
+  //   creatorSplitPercent: 50
+  //   splitReceivers: [{ percent: 30 }, { percent: 70 }]
+  //   => 30 + 70 = 100% of the non-creator portion
+  //
+  // For our 70/30 split:
+  //   creatorSplitPercent: 70
+  //   splitReceivers: [{ percent: 100 }]  => 100% of the remaining 30% goes to treasury
+  const launchParams: Record<string, any> = {
     name: params.name,
     symbol: params.symbol,
     creator: params.creatorAddress,
     creatorFeeAllocationPercent: 100,
     fairLaunchPercent: 0,
     fairLaunchDuration: 30 * 60,
-    initialMarketCapUSD: params.initialMarketCapUSD ?? 1_000,
+    initialMarketCapUSD: params.initialMarketCapUSD ?? 1000,
+    creatorSplitPercent: 70,
+    splitReceivers: [
+      {
+        address: ALIFE_TREASURY,
+        percent: 100, // 100% of the non-creator 30% portion
+      },
+    ],
     metadata: {
       base64Image: params.imageBase64,
       description: params.description,
-    },
-    // Pass the split manager directly via treasuryManagerParams
-    treasuryManagerParams: {
-      manager: ADDRESS_FEE_SPLIT_MANAGER,
-      initializeData,
-      depositData: "0x" as `0x${string}`,
     },
   };
 
@@ -195,8 +130,7 @@ export async function flaunchAgentToken(
     metadata: { ...launchParams.metadata, base64Image: launchParams.metadata.base64Image?.slice(0, 50) + "..." },
   }, null, 2));
 
-  // Use flaunchIPFS (not flaunchIPFSWithSplitManager) with our own treasuryManagerParams
-  const hash = await flaunch.flaunchIPFS(launchParams);
+  const hash = await flaunch.flaunchIPFSWithSplitManager(launchParams);
 
   // Parse the transaction to get token details
   const poolData = await flaunchRead.getPoolCreatedFromTx(hash) as PoolCreatedEventData | null;
