@@ -5,6 +5,9 @@ import { useParams, useRouter } from "next/navigation";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import Navbar from "@/components/Navbar";
 import TierBadge, { tierColor } from "@/components/TierBadge";
+import { getCreatorClaimableBalance, claimCreatorFees, getPlatformClaimableBalance, claimPlatformFees } from "@/lib/flaunch";
+import { createWalletClient, custom, formatEther } from "viem";
+import { base } from "viem/chains";
 import {
   getAgent,
   getAgentLogs,
@@ -158,7 +161,8 @@ export default function AgentPage() {
   const [showFund, setShowFund] = useState(false);
   const [fundAmount, setFundAmount] = useState("5");
   const [claiming, setClaiming] = useState(false);
-  const [claimable] = useState("0.00");
+  const [claimable, setClaimable] = useState("0.00");
+  const [claimError, setClaimError] = useState("");
   const [soulMd, setSoulMd] = useState<string | null>(null);
   const feedEndRef = useRef<HTMLDivElement>(null);
 
@@ -210,6 +214,15 @@ export default function AgentPage() {
         if (data && (data as any).soul_md) setSoulMd((data as any).soul_md);
       });
 
+    // Fetch claimable fees from Flaunch RevenueManager
+    if (wallets?.[0]?.address) {
+      getCreatorClaimableBalance(wallets[0].address as `0x${string}`)
+        .then((balance) => {
+          setClaimable(parseFloat(formatEther(balance)).toFixed(6));
+        })
+        .catch((err) => console.warn("Failed to fetch claimable:", err));
+    }
+
     const agentSub = subscribeToAgent(agentId, setAgent);
     const logSub = subscribeToAgentLogs(agentId, (newLog) => {
       setLogs((prev) => [newLog, ...prev].slice(0, 100));
@@ -219,15 +232,48 @@ export default function AgentPage() {
       supabase.removeChannel(agentSub);
       supabase.removeChannel(logSub);
     };
-  }, [agentId]);
+  }, [agentId, wallets]);
 
   useEffect(() => {
     if (tab === "directives") chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory, tab]);
 
   const handleClaimFees = async () => {
+    if (claiming) return;
     setClaiming(true);
-    try { await new Promise((r) => setTimeout(r, 2000)); } finally { setClaiming(false); }
+    setClaimError("");
+    try {
+      const wallet = wallets?.[0];
+      if (!wallet) throw new Error("No wallet connected");
+
+      await wallet.switchChain(base.id);
+      const provider = await wallet.getEthereumProvider();
+      const walletClient = createWalletClient({
+        account: wallet.address as `0x${string}`,
+        chain: base,
+        transport: custom(provider),
+      });
+
+      const txHash = await claimCreatorFees(walletClient);
+      console.log("Claim tx:", txHash);
+
+      // Refresh balance
+      const newBalance = await getCreatorClaimableBalance(wallet.address as `0x${string}`);
+      setClaimable(parseFloat(formatEther(newBalance)).toFixed(6));
+
+      // Log it
+      await supabase.from("agent_logs").insert({
+        agent_id: agentId,
+        level: "earning",
+        message: `Creator claimed fees — tx: ${txHash.slice(0, 10)}…`,
+        metadata: { tx_hash: txHash },
+      });
+    } catch (err: any) {
+      console.error("Claim error:", err);
+      setClaimError(err.message || "Claim failed");
+    } finally {
+      setClaiming(false);
+    }
   };
 
   const handleFundAgent = async () => {
@@ -421,6 +467,21 @@ export default function AgentPage() {
         {tab === "wallets" && isCreator && (
           <div className="card p-4 space-y-3">
             <WalletCard label="Your Wallet (Creator)" address={wallets?.[0]?.address || null} balance={`${claimable} ETH`} balanceLabel="Claimable Fees" color="#00ffaa" icon="💰" onAction={handleClaimFees} actionLabel={claiming ? "Claiming..." : "CLAIM FEES"} />
+            {claimError && (
+              <div className="text-[var(--alife-red,#ff4444)] text-xs font-mono text-center p-2">
+                {claimError}
+              </div>
+            )}
+            {agent.flaunch_token_address && (
+              <a
+                href={`https://flaunch.gg/base/token/${agent.flaunch_token_address}`}
+                target="_blank"
+                rel="noopener"
+                className="block text-center text-[10px] font-mono text-[var(--alife-accent)] hover:underline py-2"
+              >
+                View token on Flaunch →
+              </a>
+            )}
             <WalletCard label="Agent Wallet (Conway)" address={agent.agent_wallet_address} balance={`$${Number(agent.current_balance).toFixed(2)}`} balanceLabel="Agent Compute Balance" color="#4d9fff" icon="🤖" onAction={() => setShowFund(true)} actionLabel="FUND AGENT" actionColor="#4d9fff" />
             {showFund && (
               <div className="card p-4" style={{ borderColor: "rgba(77,159,255,0.3)" }}>
