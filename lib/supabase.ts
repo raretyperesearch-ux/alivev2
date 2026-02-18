@@ -8,7 +8,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 // Types matching our DB schema
 export type AgentStatus = "pending" | "deploying" | "alive" | "low_compute" | "critical" | "dead";
 export type SurvivalTier = "normal" | "low_compute" | "critical" | "dead";
-export type LogLevel = "info" | "warn" | "error" | "action" | "earning";
+export type LogLevel = "info" | "warn" | "error" | "action" | "earning" | "directive";
 
 export interface Agent {
   id: string;
