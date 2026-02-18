@@ -158,8 +158,30 @@ export async function flaunchAgentToken(
 }
 
 // ============================================
-// FEE CLAIMING (direct viem calls, bypasses SDK)
+// FEE CLAIMING (direct viem calls)
 // ============================================
+
+const FEE_ESCROW_ADDRESS = "0x72e6f7948b1B1A343B477F39aAbd2E35E6D27dde" as `0x${string}`;
+
+const FEE_ESCROW_ABI = [
+  {
+    inputs: [{ internalType: "address", name: "_recipient", type: "address" }],
+    name: "balances",
+    outputs: [{ internalType: "uint256", name: "_amount", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "address", name: "_recipient", type: "address" },
+      { internalType: "bool", name: "_unwrap", type: "bool" },
+    ],
+    name: "withdrawFees",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+] as const;
 
 const REVENUE_MANAGER_ABI = [
   {
@@ -170,9 +192,9 @@ const REVENUE_MANAGER_ABI = [
     type: "function",
   },
   {
-    inputs: [{ internalType: "address", name: "", type: "address" }],
+    inputs: [{ internalType: "address", name: "_recipient", type: "address" }],
     name: "balances",
-    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    outputs: [{ internalType: "uint256", name: "balance_", type: "uint256" }],
     stateMutability: "view",
     type: "function",
   },
@@ -183,81 +205,96 @@ const REVENUE_MANAGER_ABI = [
     stateMutability: "view",
     type: "function",
   },
-  {
-    inputs: [],
-    name: "protocolFee",
-    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [],
-    name: "protocolTotalClaimed",
-    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
-    stateMutability: "view",
-    type: "function",
-  },
 ] as const;
 
 /**
- * Check how much ETH a creator can claim from their agent tokens
+ * Check fees sitting in FeeEscrow for the RevenueManager
+ */
+export async function getEscrowBalance(): Promise<bigint> {
+  if (!REVENUE_MANAGER_ADDRESS) return BigInt(0);
+  try {
+    return await publicClient.readContract({
+      address: FEE_ESCROW_ADDRESS,
+      abi: FEE_ESCROW_ABI,
+      functionName: "balances",
+      args: [REVENUE_MANAGER_ADDRESS],
+    }) as bigint;
+  } catch {
+    return BigInt(0);
+  }
+}
+
+/**
+ * Check how much ETH a creator can claim
  */
 export async function getCreatorClaimableBalance(
   creatorAddress: `0x${string}`
 ): Promise<bigint> {
   if (!REVENUE_MANAGER_ADDRESS) return BigInt(0);
-  
+  // Check both escrow and RevenueManager balances
+  const escrowBal = await getEscrowBalance();
+  let rmBal = BigInt(0);
   try {
-    const balance = await publicClient.readContract({
+    rmBal = await publicClient.readContract({
       address: REVENUE_MANAGER_ADDRESS,
       abi: REVENUE_MANAGER_ABI,
       functionName: "balances",
       args: [creatorAddress],
-    });
-    return balance as bigint;
-  } catch (err) {
-    console.warn("Failed to read creator balance:", err);
-    return BigInt(0);
-  }
+    }) as bigint;
+  } catch {}
+  return escrowBal + rmBal;
 }
 
 /**
- * Check how much ETH ALiFe platform can claim
+ * Check how much ETH the platform can claim
  */
 export async function getPlatformClaimableBalance(): Promise<bigint> {
   if (!REVENUE_MANAGER_ADDRESS) return BigInt(0);
-  
+  const escrowBal = await getEscrowBalance();
+  let rmBal = BigInt(0);
   try {
-    // First get the protocol recipient from the contract
     const recipient = await publicClient.readContract({
       address: REVENUE_MANAGER_ADDRESS,
       abi: REVENUE_MANAGER_ABI,
       functionName: "protocolRecipient",
     });
-
-    const balance = await publicClient.readContract({
+    rmBal = await publicClient.readContract({
       address: REVENUE_MANAGER_ADDRESS,
       abi: REVENUE_MANAGER_ABI,
       functionName: "balances",
       args: [recipient as `0x${string}`],
-    });
-    return balance as bigint;
-  } catch (err) {
-    console.warn("Failed to read platform balance:", err);
-    return BigInt(0);
-  }
+    }) as bigint;
+  } catch {}
+  return escrowBal + rmBal;
 }
 
 /**
- * Creator claims their fees (calls claim() on RevenueManager)
+ * Full claim flow:
+ * 1. Withdraw fees from FeeEscrow → RevenueManager
+ * 2. Claim from RevenueManager → caller's wallet
  */
 export async function claimCreatorFees(walletClient: WalletClient): Promise<`0x${string}`> {
-  if (!REVENUE_MANAGER_ADDRESS) {
-    throw new Error("RevenueManager not deployed");
+  if (!REVENUE_MANAGER_ADDRESS) throw new Error("RevenueManager not deployed");
+  const [account] = await walletClient.getAddresses();
+
+  // Step 1: Withdraw from FeeEscrow to RevenueManager
+  try {
+    const withdrawHash = await walletClient.writeContract({
+      address: FEE_ESCROW_ADDRESS,
+      abi: FEE_ESCROW_ABI,
+      functionName: "withdrawFees",
+      args: [REVENUE_MANAGER_ADDRESS, true],
+      account,
+      chain: base,
+    });
+    // Wait for withdraw to confirm
+    await publicClient.waitForTransactionReceipt({ hash: withdrawHash });
+  } catch (err: any) {
+    console.warn("FeeEscrow withdraw (may already be empty):", err.message);
   }
 
-  const [account] = await walletClient.getAddresses();
-  const hash = await walletClient.writeContract({
+  // Step 2: Claim from RevenueManager
+  const claimHash = await walletClient.writeContract({
     address: REVENUE_MANAGER_ADDRESS,
     abi: REVENUE_MANAGER_ABI,
     functionName: "claim",
@@ -265,20 +302,33 @@ export async function claimCreatorFees(walletClient: WalletClient): Promise<`0x$
     chain: base,
   });
 
-  return hash;
+  return claimHash;
 }
 
 /**
- * ALiFe platform claims its 30% cut
- * (Only callable by the protocolRecipient wallet)
+ * Platform claim — same 2-step flow
  */
 export async function claimPlatformFees(walletClient: WalletClient): Promise<`0x${string}`> {
-  if (!REVENUE_MANAGER_ADDRESS) {
-    throw new Error("RevenueManager not deployed");
+  if (!REVENUE_MANAGER_ADDRESS) throw new Error("RevenueManager not deployed");
+  const [account] = await walletClient.getAddresses();
+
+  // Step 1: Withdraw from FeeEscrow to RevenueManager
+  try {
+    const withdrawHash = await walletClient.writeContract({
+      address: FEE_ESCROW_ADDRESS,
+      abi: FEE_ESCROW_ABI,
+      functionName: "withdrawFees",
+      args: [REVENUE_MANAGER_ADDRESS, true],
+      account,
+      chain: base,
+    });
+    await publicClient.waitForTransactionReceipt({ hash: withdrawHash });
+  } catch (err: any) {
+    console.warn("FeeEscrow withdraw (may already be empty):", err.message);
   }
 
-  const [account] = await walletClient.getAddresses();
-  const hash = await walletClient.writeContract({
+  // Step 2: Claim from RevenueManager
+  const claimHash = await walletClient.writeContract({
     address: REVENUE_MANAGER_ADDRESS,
     abi: REVENUE_MANAGER_ABI,
     functionName: "claim",
@@ -286,7 +336,7 @@ export async function claimPlatformFees(walletClient: WalletClient): Promise<`0x
     chain: base,
   });
 
-  return hash;
+  return claimHash;
 }
 
 // ============================================
