@@ -6,16 +6,17 @@ import { Agent } from "@/lib/supabase";
 
 export default function AgentCard({ agent }: { agent: Agent }) {
   const tc = tierColor(agent.survival_tier);
+  const isAlive = agent.survival_tier !== "dead";
 
   return (
-    <Link href={`/agent/${agent.id}`} className="no-underline">
-      <div className="card px-4 py-3.5 mb-2 cursor-pointer flex items-center gap-3 hover:border-[var(--alife-border-hover)] transition-colors">
+    <Link href={`/agent/${agent.id}`} className="no-underline block">
+      <div className="card px-5 py-4 cursor-pointer flex items-center gap-4 group">
         {/* Avatar */}
         <div
-          className="w-10 h-10 rounded-[10px] flex items-center justify-center text-base font-extrabold font-mono"
+          className="w-11 h-11 rounded-full flex items-center justify-center text-base font-bold shrink-0"
           style={{
-            background: `${tc}12`,
-            border: `1px solid ${tc}30`,
+            background: `${tc}10`,
+            border: `1.5px solid ${tc}25`,
             color: tc,
           }}
         >
@@ -24,35 +25,39 @@ export default function AgentCard({ agent }: { agent: Agent }) {
 
         {/* Info */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-0.5">
-            <span className="font-bold text-white text-sm">{agent.name}</span>
-            <span className="text-[rgba(0,255,170,0.35)] text-[10px] font-mono">
+          <div className="flex items-center gap-2.5 mb-1">
+            <span className="font-semibold text-[15px]" style={{ color: "var(--text)" }}>{agent.name}</span>
+            <span className="text-[12px] font-mono" style={{ color: "var(--text-muted)" }}>
               {agent.ticker}
             </span>
             <TierBadge tier={agent.survival_tier} />
+            {isAlive && <span className="status-alive animate-pulse-soft" />}
           </div>
-          <div className="text-[var(--alife-dim)] text-[10px] truncate">
+          <div className="text-[13px] truncate" style={{ color: "var(--text-secondary)" }}>
             {agent.description}
           </div>
         </div>
 
         {/* Earned */}
-        <div className="text-right">
-          <div className="font-mono font-extrabold text-[var(--alife-accent)] text-sm">
+        <div className="text-right shrink-0">
+          <div className="font-mono font-bold text-[15px]" style={{ color: "var(--accent)" }}>
             ${Number(agent.total_earned).toFixed(0)}
           </div>
-          <div className="text-[var(--alife-muted)] text-[9px] font-mono">earned</div>
+          <div className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>earned</div>
         </div>
 
         {/* Balance */}
-        <div className="text-right min-w-[55px]">
-          <div className="font-mono font-bold text-xs" style={{ color: tc }}>
+        <div className="text-right shrink-0 min-w-[60px]">
+          <div className="font-mono font-semibold text-sm" style={{ color: tc }}>
             ${Number(agent.current_balance).toFixed(2)}
           </div>
-          <div className="text-[var(--alife-muted)] text-[9px] font-mono">bal</div>
+          <div className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>balance</div>
         </div>
 
-        <span className="text-[var(--alife-muted)] text-sm">›</span>
+        {/* Arrow */}
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0 opacity-20 group-hover:opacity-50 transition-opacity" style={{ color: "var(--text-secondary)" }}>
+          <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
       </div>
     </Link>
   );

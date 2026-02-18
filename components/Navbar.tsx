@@ -12,38 +12,45 @@ export default function Navbar() {
     : null;
 
   return (
-    <nav className="sticky top-0 z-50 flex items-center justify-between px-5 py-3 border-b border-[var(--alife-border)] bg-[var(--alife-bg)]/90 backdrop-blur-xl">
+    <nav className="sticky top-0 z-50 flex items-center justify-between px-6 py-4" style={{
+      background: "rgba(6, 8, 7, 0.85)",
+      backdropFilter: "blur(20px)",
+      WebkitBackdropFilter: "blur(20px)",
+      borderBottom: "1px solid var(--border)",
+    }}>
       {/* Logo */}
-      <Link href="/" className="flex items-center gap-2 no-underline">
-        <div className="w-8 h-8 rounded-lg bg-[rgba(0,255,170,0.12)] border border-[rgba(0,255,170,0.25)] flex items-center justify-center text-sm font-extrabold font-mono text-[var(--alife-accent)]">
-          ◈
-        </div>
-        <span className="font-display font-extrabold text-base text-white tracking-[3px]">
-          Alive <span className="text-[var(--alife-accent)]">Agents</span> v2
+      <Link href="/" className="flex items-center gap-2.5 no-underline">
+        <span className="font-display text-xl tracking-[-0.01em]" style={{ color: "var(--text)" }}>
+          Alive <span style={{ color: "var(--accent)" }}>Agents</span>
         </span>
       </Link>
 
       {/* Right side */}
       <div className="flex items-center gap-3">
-        <Link href="/launch" className="btn-primary px-4 py-2 text-xs no-underline">
-          ⚡ LAUNCH
+        <Link href="/launch" className="btn-primary px-5 py-2.5 text-[13px] no-underline">
+          Launch
         </Link>
 
         {ready && (
           authenticated && truncated ? (
             <button
               onClick={logout}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[rgba(0,255,170,0.06)] border border-[rgba(0,255,170,0.15)] text-xs font-mono text-[var(--alife-accent)] cursor-pointer hover:border-[rgba(0,255,170,0.3)] transition-colors"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-full text-[13px] cursor-pointer transition-all"
+              style={{
+                background: "rgba(184, 240, 196, 0.06)",
+                border: "1px solid var(--border)",
+                color: "var(--accent)",
+              }}
             >
-              <span className="w-[6px] h-[6px] rounded-full bg-[var(--alife-accent)] shadow-[0_0_4px_var(--alife-accent)]" />
+              <span className="status-alive" />
               {truncated}
             </button>
           ) : (
             <button
               onClick={login}
-              className="btn-ghost px-3 py-2 text-xs"
+              className="btn-ghost px-5 py-2.5 text-[13px]"
             >
-              CONNECT
+              Connect
             </button>
           )
         )}

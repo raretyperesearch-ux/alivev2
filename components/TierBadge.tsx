@@ -3,9 +3,9 @@
 import { SurvivalTier } from "@/lib/supabase";
 
 const tierConfig: Record<SurvivalTier, { label: string; color: string }> = {
-  normal: { label: "ALIVE", color: "#00ffaa" },
-  low_compute: { label: "LOW COMPUTE", color: "#ffd000" },
-  critical: { label: "CRITICAL", color: "#ff3355" },
+  normal: { label: "ALIVE", color: "#4ade80" },
+  low_compute: { label: "LOW", color: "#fcd34d" },
+  critical: { label: "CRITICAL", color: "#fb7185" },
   dead: { label: "DEAD", color: "#555" },
 };
 
