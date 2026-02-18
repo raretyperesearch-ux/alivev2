@@ -110,21 +110,18 @@ export interface LaunchResult {
 
 /**
  * Flaunch a token for a new Alive Agent
- * Uses flaunchIPFSWithRevenueManager so fees auto-split
+ * Uses flaunchIPFSWithSplitManager — NFT stays with creator, fees auto-split
+ * Creator gets 70%, Platform treasury gets 30%
  */
 export async function flaunchAgentToken(
   walletClient: WalletClient,
   params: LaunchAgentTokenParams
 ): Promise<LaunchResult> {
-  if (!REVENUE_MANAGER_ADDRESS) {
-    throw new Error("RevenueManager not deployed. Call deployRevenueManager() first.");
-  }
-
   const flaunch = createFlaunchSDK(walletClient);
   const flaunchRead = createFlaunchReadSDK();
 
-  // Use flaunchIPFSWithRevenueManager — NFT goes to RevenueManager for auto fee split
-  const hash = await flaunch.flaunchIPFSWithRevenueManager({
+  // Use flaunchIPFSWithSplitManager — creator keeps NFT, fees split automatically
+  const hash = await flaunch.flaunchIPFSWithSplitManager({
     name: params.name,
     symbol: params.symbol,
     creator: params.creatorAddress,
@@ -132,7 +129,15 @@ export async function flaunchAgentToken(
     fairLaunchPercent: 0,
     fairLaunchDuration: params.fairLaunchDurationSeconds ?? 30 * 60,
     initialMarketCapUSD: params.initialMarketCapUSD ?? 10_000,
-    revenueManagerInstanceAddress: REVENUE_MANAGER_ADDRESS,
+    // Fee split: 70% to creator, 30% to platform treasury
+    creatorSplitPercent: 70,
+    managerOwnerSplitPercent: 0,
+    splitReceivers: [
+      {
+        address: ALIFE_TREASURY,
+        percent: 30,
+      },
+    ],
     metadata: {
       base64Image: params.imageBase64,
       description: params.description,
@@ -208,16 +213,15 @@ const REVENUE_MANAGER_ABI = [
 ] as const;
 
 /**
- * Check fees sitting in FeeEscrow for the RevenueManager
+ * Check fees sitting in FeeEscrow for a wallet address
  */
-export async function getEscrowBalance(): Promise<bigint> {
-  if (!REVENUE_MANAGER_ADDRESS) return BigInt(0);
+export async function getEscrowBalance(address: `0x${string}`): Promise<bigint> {
   try {
     return await publicClient.readContract({
       address: FEE_ESCROW_ADDRESS,
       abi: FEE_ESCROW_ABI,
       functionName: "balances",
-      args: [REVENUE_MANAGER_ADDRESS],
+      args: [address],
     }) as bigint;
   } catch {
     return BigInt(0);
@@ -225,118 +229,55 @@ export async function getEscrowBalance(): Promise<bigint> {
 }
 
 /**
- * Check how much ETH a creator can claim
+ * Check how much ETH a creator can claim (from FeeEscrow)
  */
 export async function getCreatorClaimableBalance(
   creatorAddress: `0x${string}`
 ): Promise<bigint> {
-  if (!REVENUE_MANAGER_ADDRESS) return BigInt(0);
-  // Check both escrow and RevenueManager balances
-  const escrowBal = await getEscrowBalance();
-  let rmBal = BigInt(0);
-  try {
-    rmBal = await publicClient.readContract({
-      address: REVENUE_MANAGER_ADDRESS,
-      abi: REVENUE_MANAGER_ABI,
-      functionName: "balances",
-      args: [creatorAddress],
-    }) as bigint;
-  } catch {}
-  return escrowBal + rmBal;
+  return getEscrowBalance(creatorAddress);
 }
 
 /**
- * Check how much ETH the platform can claim
+ * Check how much ETH the platform can claim (from FeeEscrow)
  */
 export async function getPlatformClaimableBalance(): Promise<bigint> {
-  if (!REVENUE_MANAGER_ADDRESS) return BigInt(0);
-  const escrowBal = await getEscrowBalance();
-  let rmBal = BigInt(0);
-  try {
-    const recipient = await publicClient.readContract({
-      address: REVENUE_MANAGER_ADDRESS,
-      abi: REVENUE_MANAGER_ABI,
-      functionName: "protocolRecipient",
-    });
-    rmBal = await publicClient.readContract({
-      address: REVENUE_MANAGER_ADDRESS,
-      abi: REVENUE_MANAGER_ABI,
-      functionName: "balances",
-      args: [recipient as `0x${string}`],
-    }) as bigint;
-  } catch {}
-  return escrowBal + rmBal;
+  return getEscrowBalance(ALIFE_TREASURY);
 }
 
 /**
- * Full claim flow:
- * 1. Withdraw fees from FeeEscrow → RevenueManager
- * 2. Claim from RevenueManager → caller's wallet
+ * Creator claims their fees — withdraws from FeeEscrow to their wallet
  */
 export async function claimCreatorFees(walletClient: WalletClient): Promise<`0x${string}`> {
-  if (!REVENUE_MANAGER_ADDRESS) throw new Error("RevenueManager not deployed");
   const [account] = await walletClient.getAddresses();
 
-  // Step 1: Withdraw from FeeEscrow to RevenueManager
-  try {
-    const withdrawHash = await walletClient.writeContract({
-      address: FEE_ESCROW_ADDRESS,
-      abi: FEE_ESCROW_ABI,
-      functionName: "withdrawFees",
-      args: [REVENUE_MANAGER_ADDRESS, true],
-      account,
-      chain: base,
-    });
-    // Wait for withdraw to confirm
-    await publicClient.waitForTransactionReceipt({ hash: withdrawHash });
-  } catch (err: any) {
-    console.warn("FeeEscrow withdraw (may already be empty):", err.message);
-  }
-
-  // Step 2: Claim from RevenueManager
-  const claimHash = await walletClient.writeContract({
-    address: REVENUE_MANAGER_ADDRESS,
-    abi: REVENUE_MANAGER_ABI,
-    functionName: "claim",
+  const hash = await walletClient.writeContract({
+    address: FEE_ESCROW_ADDRESS,
+    abi: FEE_ESCROW_ABI,
+    functionName: "withdrawFees",
+    args: [account, true],
     account,
     chain: base,
   });
 
-  return claimHash;
+  return hash;
 }
 
 /**
- * Platform claim — same 2-step flow
+ * Platform claims its 30% — withdraws from FeeEscrow to treasury
  */
 export async function claimPlatformFees(walletClient: WalletClient): Promise<`0x${string}`> {
-  if (!REVENUE_MANAGER_ADDRESS) throw new Error("RevenueManager not deployed");
   const [account] = await walletClient.getAddresses();
 
-  // Step 1: Withdraw from FeeEscrow to RevenueManager
-  try {
-    const withdrawHash = await walletClient.writeContract({
-      address: FEE_ESCROW_ADDRESS,
-      abi: FEE_ESCROW_ABI,
-      functionName: "withdrawFees",
-      args: [REVENUE_MANAGER_ADDRESS, true],
-      account,
-      chain: base,
-    });
-    await publicClient.waitForTransactionReceipt({ hash: withdrawHash });
-  } catch (err: any) {
-    console.warn("FeeEscrow withdraw (may already be empty):", err.message);
-  }
-
-  // Step 2: Claim from RevenueManager
-  const claimHash = await walletClient.writeContract({
-    address: REVENUE_MANAGER_ADDRESS,
-    abi: REVENUE_MANAGER_ABI,
-    functionName: "claim",
+  const hash = await walletClient.writeContract({
+    address: FEE_ESCROW_ADDRESS,
+    abi: FEE_ESCROW_ABI,
+    functionName: "withdrawFees",
+    args: [ALIFE_TREASURY, true],
     account,
     chain: base,
   });
 
-  return claimHash;
+  return hash;
 }
 
 // ============================================
