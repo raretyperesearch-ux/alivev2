@@ -66,9 +66,29 @@ export async function flaunchAgentToken(walletClient, params) {
 
   const hash = await flaunch.flaunchIPFS(launchParams);
 
-  const poolData = await flaunchRead.getPoolCreatedFromTx(hash);
+  // Wait for receipt with retries — Base RPC can be slow to return receipts
+  let poolData = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      poolData = await flaunchRead.getPoolCreatedFromTx(hash);
+      if (poolData) break;
+    } catch (err) {
+      console.log(`[flaunch] Attempt ${attempt + 1}/5 to parse tx — waiting...`);
+    }
+    // Wait 3 seconds between retries
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+
   if (!poolData) {
-    throw new Error("Failed to parse flaunch transaction");
+    // Tx succeeded but we can't parse it — return hash so DB still gets updated
+    console.warn("[flaunch] Could not parse tx receipt, returning hash only");
+    return {
+      txHash: hash,
+      memecoinAddress: null,
+      tokenId: null,
+      poolAddress: null,
+      splitManagerAddress: null,
+    };
   }
 
   return {

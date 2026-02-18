@@ -119,9 +119,9 @@ export async function launchAgent(
       creator_fees_owed: 0,
       creator_fees_paid: 0,
       agent_wallet_address: "pending",
-      flaunch_token_address: flaunchResult.memecoinAddress,
+      flaunch_token_address: flaunchResult.memecoinAddress || null,
       flaunch_pool_address: flaunchResult.poolAddress || null,
-      flaunch_nft_id: flaunchResult.tokenId,
+      flaunch_nft_id: flaunchResult.tokenId != null ? flaunchResult.tokenId : null,
       flaunch_tx_hash: flaunchResult.txHash,
       split_manager_address: null,
       conway_sandbox_id: "pending",
@@ -181,7 +181,7 @@ export async function launchAgent(
   await supabase.from("agent_logs").insert({
     agent_id: agent.id,
     level: "action",
-    message: `Agent launched! Token: ${flaunchResult.memecoinAddress.slice(0, 10)}… | Sandbox: ${conwayAgent.sandboxId}`,
+    message: `Agent launched! Token: ${flaunchResult.memecoinAddress ? flaunchResult.memecoinAddress.slice(0, 10) + "…" : "parsing..."} | Sandbox: ${conwayAgent.sandboxId}`,
     metadata: {
       tx_hash: flaunchResult.txHash,
       token_address: flaunchResult.memecoinAddress,
