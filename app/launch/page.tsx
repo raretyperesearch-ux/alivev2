@@ -1,20 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { createWalletClient, custom } from "viem";
 import { base } from "viem/chains";
 import Navbar from "@/components/Navbar";
 import { launchAgent } from "@/lib/launch";
-import { supabase } from "@/lib/supabase";
 
 const DEPLOY_STEPS = [
   "Deploying token on Flaunch (Base)…",
   "Token live — confirming on-chain…",
   "Creating agent record…",
   "Spinning up Conway sandbox…",
-  "Agent wallet funded — $0.50 credits…",
+  "Agent wallet generated…",
   "Writing genesis prompt…",
   "Agent is ALIVE ⚡",
 ];
@@ -29,24 +28,12 @@ export default function LaunchPage() {
     ticker: "",
     description: "",
     genesis_prompt: "",
-    funding: "10",
     image: "",
   });
   const [launching, setLaunching] = useState(false);
   const [step, setStep] = useState(0);
+  const [stepMessage, setStepMessage] = useState("");
   const [error, setError] = useState("");
-
-  // Deploy animation
-  useEffect(() => {
-    if (!launching) return;
-    if (step < DEPLOY_STEPS.length - 1) {
-      const t = setTimeout(() => setStep((s) => s + 1), 1200);
-      return () => clearTimeout(t);
-    } else {
-      const t = setTimeout(() => router.push("/"), 1000);
-      return () => clearTimeout(t);
-    }
-  }, [launching, step, router]);
 
   const f = (key: string, value: string) => setForm({ ...form, [key]: value });
 
@@ -61,6 +48,12 @@ export default function LaunchPage() {
       setError("Fill in all fields");
       return;
     }
+
+    if (!form.image) {
+      setError("Upload an image for your agent");
+      return;
+    }
+
     setError("");
 
     // Get wallet
@@ -72,16 +65,28 @@ export default function LaunchPage() {
 
     setLaunching(true);
     setStep(0);
+    setStepMessage(DEPLOY_STEPS[0]);
 
     try {
+      // Ensure wallet is on Base
+      try {
+        await wallet.switchChain(base.id);
+      } catch (e) {
+        console.warn("Chain switch:", e);
+      }
+
       // Get viem walletClient from Privy
       const provider = await wallet.getEthereumProvider();
       const walletClient = createWalletClient({
+        account: wallet.address as `0x${string}`,
         chain: base,
         transport: custom(provider),
       });
 
-      // Run the full launch: Flaunch token → Conway agent → Supabase
+      console.log("[LaunchPage] Starting launch with wallet:", wallet.address);
+      console.log("[LaunchPage] RevenueManager env:", process.env.NEXT_PUBLIC_REVENUE_MANAGER_ADDRESS);
+
+      // Run the full launch: Flaunch token → Supabase → Conway agent
       const result = await launchAgent(
         walletClient,
         {
@@ -91,27 +96,33 @@ export default function LaunchPage() {
           ticker: form.ticker,
           description: form.description,
           genesisPrompt: form.genesis_prompt,
-          imageBase64: form.image || "",
+          imageBase64: form.image,
           initialMarketCapUSD: 10_000,
           creatorFeeAllocationPercent: 80,
         },
-        // Progress callback — updates the step indicator
+        // Real progress callback — updates step based on actual progress
         (stepNum, message) => {
+          console.log(`[LaunchPage] Step ${stepNum}: ${message}`);
           setStep(stepNum);
+          setStepMessage(message);
         }
       );
 
-      console.log("Agent launched:", result);
+      console.log("[LaunchPage] Agent launched:", result);
 
-    } catch (err) {
-      console.error("Launch error:", err);
-      setError((err as Error).message);
+      // Success — redirect after a moment
+      setStep(DEPLOY_STEPS.length - 1);
+      setStepMessage("Agent is ALIVE ⚡");
+      setTimeout(() => router.push("/"), 2000);
+
+    } catch (err: any) {
+      console.error("[LaunchPage] Launch error:", err);
+      setError(err.message || "Launch failed");
       setLaunching(false);
-      return;
     }
   };
 
-  // Deploying animation
+  // Deploying screen
   if (launching) {
     return (
       <div className="min-h-screen bg-[var(--alife-bg)]">
@@ -123,8 +134,13 @@ export default function LaunchPage() {
               {step < 6 ? "◈" : "⚡"}
             </div>
           </div>
-          <div className="font-mono text-sm text-[var(--alife-accent)] mb-5 text-center">
-            {DEPLOY_STEPS[step]}
+          <div className="font-mono text-sm text-[var(--alife-accent)] mb-3 text-center">
+            {stepMessage || DEPLOY_STEPS[step]}
+          </div>
+          <div className="font-mono text-xs text-[var(--alife-dim)] mb-5 text-center">
+            {step === 0 && "Sign the transaction in your wallet…"}
+            {step === 1 && "Waiting for block confirmation…"}
+            {step >= 2 && step < 6 && "Almost there…"}
           </div>
           <div className="flex gap-1">
             {DEPLOY_STEPS.map((_, i) => (
@@ -265,11 +281,11 @@ export default function LaunchPage() {
               Launch Sequence
             </div>
             {[
-              "Token deploys on Flaunch (Base)",
+              "You sign a tx → Token deploys on Flaunch (Base)",
               "Conway automaton spins up with its own wallet",
               "Agent receives genesis prompt → Think→Act→Observe loop",
-              "Every swap generates fees for the creator",
-              "Fund your agent anytime from your earnings",
+              "Every swap generates fees — 70% creator, 30% platform",
+              "Agent auto-funded with $1.00 Conway credits",
             ].map((s, i) => (
               <div
                 key={i}
@@ -285,7 +301,7 @@ export default function LaunchPage() {
 
           {/* Error */}
           {error && (
-            <div className="text-[var(--alife-red)] text-xs font-mono text-center">
+            <div className="text-[var(--alife-red,#ff4444)] text-xs font-mono text-center p-3 bg-[rgba(255,0,0,0.05)] rounded-lg border border-[rgba(255,0,0,0.15)]">
               {error}
             </div>
           )}
