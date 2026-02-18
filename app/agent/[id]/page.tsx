@@ -348,7 +348,7 @@ export default function AgentPage() {
 
         {/* ─── COMPACT AGENT HEADER + INLINE STATS ─── */}
         <div className="card glow-accent p-4 mb-3">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap sm:flex-nowrap">
             <div
               className="w-[48px] h-[48px] rounded-xl flex items-center justify-center text-[20px] font-extrabold font-mono shrink-0"
               style={{ background: `${tc}18`, border: `2px solid ${tc}30`, color: tc }}
@@ -356,48 +356,56 @@ export default function AgentPage() {
               {agent.name[0]}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-0.5">
+              <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                 <h1 className="m-0 text-lg font-display font-extrabold text-white truncate">{agent.name}</h1>
                 <span className="text-[rgba(0,255,170,0.35)] text-xs font-mono">{agent.ticker}</span>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
                 <TierBadge tier={agent.survival_tier} />
                 {agent.status === "alive" && <LiveDot />}
               </div>
-              <p className="m-0 text-[var(--alife-dim)] text-[11px] truncate">{agent.description}</p>
+              <p className="m-0 text-[var(--alife-dim)] text-[11px] truncate mt-1">{agent.description}</p>
             </div>
-            <div className="flex gap-5 shrink-0 items-center">
-              <div className="text-right">
-                <div className="text-[8px] font-mono uppercase tracking-[1px] text-[var(--alife-dim)]">Balance</div>
-                <div className="text-base font-extrabold font-mono" style={{ color: tc }}>${Number(agent.current_balance).toFixed(2)}</div>
-              </div>
-              <div className="text-right">
-                <div className="text-[8px] font-mono uppercase tracking-[1px] text-[var(--alife-dim)]">Earned</div>
-                <div className="text-base font-extrabold font-mono text-[var(--alife-accent)]">${Number(agent.total_earned).toFixed(0)}</div>
-              </div>
-              <div className="text-right">
-                <div className="text-[8px] font-mono uppercase tracking-[1px] text-[var(--alife-dim)]">Model</div>
-                <div className="text-[10px] font-mono text-[var(--alife-dim)]">{agent.model?.replace("claude-", "").replace("-20250514", "")}</div>
-                <div className="text-[9px] font-mono text-[var(--alife-muted)]">Gen {agent.generation}</div>
-              </div>
-              {isCreator && (
-                <div className="text-[9px] font-mono text-[var(--alife-accent)] shrink-0">⚡ CREATOR</div>
-              )}
+          </div>
+          {/* Stats row — always below on mobile */}
+          <div className="flex gap-4 mt-3 pt-3 flex-wrap" style={{ borderTop: "1px solid var(--alife-border)" }}>
+            <div className="text-center min-w-[60px]">
+              <div className="text-[8px] font-mono uppercase tracking-[1px] text-[var(--alife-dim)]">Balance</div>
+              <div className="text-sm font-extrabold font-mono" style={{ color: tc }}>${Number(agent.current_balance).toFixed(2)}</div>
             </div>
+            <div className="text-center min-w-[60px]">
+              <div className="text-[8px] font-mono uppercase tracking-[1px] text-[var(--alife-dim)]">Earned</div>
+              <div className="text-sm font-extrabold font-mono text-[var(--alife-accent)]">${Number(agent.total_earned).toFixed(0)}</div>
+            </div>
+            <div className="text-center min-w-[60px]">
+              <div className="text-[8px] font-mono uppercase tracking-[1px] text-[var(--alife-dim)]">Model</div>
+              <div className="text-[10px] font-mono text-[var(--alife-dim)]">{agent.model?.replace("claude-", "").replace("-20250514", "")}</div>
+            </div>
+            <div className="text-center min-w-[40px]">
+              <div className="text-[8px] font-mono uppercase tracking-[1px] text-[var(--alife-dim)]">Gen</div>
+              <div className="text-[10px] font-mono text-[var(--alife-dim)]">{agent.generation}</div>
+            </div>
+            {isCreator && (
+              <div className="flex items-center ml-auto">
+                <span className="text-[9px] font-mono text-[var(--alife-accent)]">⚡ CREATOR</span>
+              </div>
+            )}
           </div>
         </div>
 
         {/* ─── TABS ─── */}
-        <div className="flex gap-1 mb-3 flex-wrap">
+        <div className="flex gap-1 mb-3 overflow-x-auto pb-1 -mx-1 px-1" style={{ WebkitOverflowScrolling: "touch" }}>
           {tabList.map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-3 py-1.5 rounded-lg text-[10px] font-mono font-bold uppercase tracking-[1px] cursor-pointer border transition-colors ${
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-mono font-bold uppercase tracking-[1px] cursor-pointer border transition-colors whitespace-nowrap shrink-0 ${
                 tab === t
                   ? "bg-[rgba(0,255,170,0.08)] border-[rgba(0,255,170,0.25)] text-[var(--alife-accent)]"
                   : "bg-transparent border-[var(--alife-border)] text-[var(--alife-dim)]"
               }`}
             >
-              {t === "directives" ? `DIRECTIVES (${messagesRemaining} left)` : t}
+              {t === "directives" ? `DIRECTIVES (${messagesRemaining})` : t}
             </button>
           ))}
         </div>
@@ -616,12 +624,12 @@ export default function AgentPage() {
           {isCreator ? (
             <>
               <button onClick={() => setTab("wallets")} className="btn-ghost flex-1 py-3 text-xs" style={{ color: "#4d9fff", borderColor: "rgba(77,159,255,0.15)" }}>🤖 WALLETS</button>
-              <a href={"https://wallet.xyz/@AGENTSCREENER"} target="_blank" rel="noopener" className="btn-ghost flex-1 py-3 text-xs text-center no-underline text-[var(--alife-text)]">📊 TRADE</a>
+              <a href={"https://wallet.xyz/@AGENTSCREENER"} target="_blank" rel="noopener" className="btn-ghost flex-1 py-3 text-xs text-center no-underline text-[var(--alife-text)]">TRADE</a>
             </>
           ) : (
             <>
               <a href={"https://wallet.xyz/@AGENTSCREENER"} target="_blank" rel="noopener" className="btn-primary flex-1 py-3 text-xs text-center no-underline">BUY {agent.ticker}</a>
-              <a href={"https://wallet.xyz/@AGENTSCREENER"} target="_blank" rel="noopener" className="btn-ghost flex-1 py-3 text-xs text-center no-underline text-[var(--alife-text)]">📊 TRADE</a>
+              <a href={"https://wallet.xyz/@AGENTSCREENER"} target="_blank" rel="noopener" className="btn-ghost flex-1 py-3 text-xs text-center no-underline text-[var(--alife-text)]">TRADE</a>
             </>
           )}
         </div>

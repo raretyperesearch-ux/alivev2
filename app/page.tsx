@@ -20,8 +20,8 @@ export default function HomePage() {
   }, []);
 
   const alive = agents.filter((a) => !["dead"].includes(a.survival_tier)).length;
+  const dead = agents.filter((a) => a.survival_tier === "dead").length;
   const earned = agents.reduce((s, a) => s + Number(a.total_earned), 0);
-  const fees = agents.reduce((s, a) => s + Number(a.total_trading_fees), 0);
 
   return (
     <div className="min-h-screen" style={{ background: "var(--bg)" }}>
@@ -30,7 +30,6 @@ export default function HomePage() {
       <main className="max-w-[920px] mx-auto pb-10">
         {/* Hero */}
         <div className="text-center pt-14 pb-10 px-5 relative">
-          {/* Organic gradient blob */}
           <div className="absolute top-[-60px] left-1/2 -translate-x-1/2 w-[700px] h-[500px] pointer-events-none" style={{
             background: "radial-gradient(ellipse 100% 80% at 50% 30%, rgba(140, 200, 150, 0.07) 0%, rgba(160, 150, 90, 0.03) 40%, transparent 70%)",
           }} />
@@ -71,18 +70,18 @@ export default function HomePage() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-4 gap-3 px-4 mb-8">
+        <div className="grid grid-cols-4 gap-2 sm:gap-3 px-4 mb-8">
           {[
             { label: "Launched", value: agents.length, color: "var(--text)" },
             { label: "Alive", value: alive, color: "var(--green)" },
             { label: "Earned", value: `$${earned.toFixed(0)}`, color: "var(--blue)" },
-            { label: "Fees", value: `$${fees.toFixed(0)}`, color: "var(--amber)" },
+            { label: "Dead", value: dead, color: "var(--red)" },
           ].map((stat, i) => (
-            <div key={i} className="card px-4 py-3.5 text-center">
-              <div className="font-mono text-xl font-bold" style={{ color: stat.color }}>
+            <div key={i} className="card px-3 sm:px-4 py-3 text-center">
+              <div className="font-mono text-lg sm:text-xl font-bold" style={{ color: stat.color }}>
                 {stat.value}
               </div>
-              <div className="text-[11px] mt-1" style={{ color: "var(--text-muted)" }}>
+              <div className="text-[10px] sm:text-[11px] mt-1" style={{ color: "var(--text-muted)" }}>
                 {stat.label}
               </div>
             </div>
@@ -123,7 +122,6 @@ export default function HomePage() {
         </div>
       </main>
 
-      {/* Footer */}
       <footer className="text-center py-5 text-[11px]" style={{ borderTop: "1px solid var(--border)", color: "var(--text-muted)" }}>
         Alive Agents v2 · Conway × Flaunch · Privy · Base L2
       </footer>
