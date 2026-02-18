@@ -24,6 +24,10 @@ export default function AdminPage() {
   const [deployedAddress, setDeployedAddress] = useState<string | null>(null);
   const [balance, setBalance] = useState<string | null>(null);
   const [error, setError] = useState<string>("");
+  const [platformClaimable, setPlatformClaimable] = useState("0.000000");
+  const [claimingPlatform, setClaimingPlatform] = useState(false);
+  const [claimStatus, setClaimStatus] = useState("");
+  const [claimErr, setClaimErr] = useState("");
 
   const wallet = wallets?.[0];
   const isAdmin = wallet && ADMIN_WALLETS.includes(wallet.address.toLowerCase());
@@ -41,6 +45,48 @@ export default function AdminPage() {
       setBalance(formatEther(bal));
     } catch (err: any) {
       setError("Failed to check balance: " + err.message);
+    }
+  };
+
+  const refreshPlatformBalance = async () => {
+    try {
+      const { getPlatformClaimableBalance } = await import("@/lib/flaunch");
+      const bal = await getPlatformClaimableBalance();
+      setPlatformClaimable(parseFloat(formatEther(bal)).toFixed(6));
+    } catch (err: any) {
+      console.warn("Failed to fetch platform balance:", err);
+    }
+  };
+
+  const handleClaimPlatformFees = async () => {
+    if (!wallet || claimingPlatform) return;
+    setClaimingPlatform(true);
+    setClaimErr("");
+    setClaimStatus("Preparing transaction...");
+
+    try {
+      await wallet.switchChain(base.id);
+      const provider = await wallet.getEthereumProvider();
+      const wc = createWalletClient({
+        account: wallet.address as `0x${string}`,
+        chain: base,
+        transport: custom(provider),
+      });
+
+      setClaimStatus("Sign the transaction in your wallet...");
+      const { claimPlatformFees } = await import("@/lib/flaunch");
+      const txHash = await claimPlatformFees(wc);
+
+      setClaimStatus(`✅ Claimed! Tx: ${txHash.slice(0, 14)}…`);
+      
+      // Refresh balance
+      await refreshPlatformBalance();
+    } catch (err: any) {
+      console.error("Platform claim error:", err);
+      setClaimErr(err.message || "Claim failed");
+      setClaimStatus("");
+    } finally {
+      setClaimingPlatform(false);
     }
   };
 
@@ -169,6 +215,51 @@ export default function AdminPage() {
           </div>
         </div>
 
+        {/* Claim Platform Fees - TOP PRIORITY */}
+        <div className="card p-5 mb-6" style={{ border: "1px solid rgba(0,232,92,0.3)" }}>
+          <h2 className="text-sm font-mono font-bold text-[var(--alife-accent)] mb-2">
+            💰 Platform Fee Claim
+          </h2>
+          <div className="text-[11px] text-[var(--alife-dim)] leading-relaxed mb-4">
+            Claim the platform&apos;s 30% cut from all agent token swap fees.
+          </div>
+
+          <div className="p-3 rounded-lg mb-4" style={{ background: "rgba(0,232,92,0.06)", border: "1px solid rgba(0,232,92,0.15)" }}>
+            <div className="text-[9px] text-[var(--alife-dim)] font-mono uppercase mb-1">Claimable Platform Fees</div>
+            <div className="text-[var(--alife-accent)] font-mono font-bold text-2xl">
+              {platformClaimable} ETH
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={refreshPlatformBalance}
+              className="btn-ghost px-4 py-2.5 text-[11px]"
+            >
+              REFRESH BALANCE
+            </button>
+            <button
+              onClick={handleClaimPlatformFees}
+              disabled={claimingPlatform || platformClaimable === "0.000000"}
+              className="btn-primary px-6 py-2.5 text-[11px] flex-1"
+              style={{ opacity: (claimingPlatform || platformClaimable === "0.000000") ? 0.5 : 1 }}
+            >
+              {claimingPlatform ? "CLAIMING..." : "CLAIM PLATFORM FEES"}
+            </button>
+          </div>
+
+          {claimStatus && (
+            <div className="mt-3 text-[11px] font-mono text-[var(--alife-accent)]">
+              {claimStatus}
+            </div>
+          )}
+          {claimErr && (
+            <div className="mt-3 text-[11px] font-mono text-[var(--alife-red)]">
+              ❌ {claimErr}
+            </div>
+          )}
+        </div>
+
         {/* Deploy RevenueManager */}
         <div className="card p-5 mb-6">
           <h2 className="text-sm font-mono font-bold text-white mb-2">
@@ -235,7 +326,7 @@ export default function AdminPage() {
         {/* Env Vars Checklist */}
         <div className="card p-5">
           <h2 className="text-sm font-mono font-bold text-white mb-3">
-            2. Vercel Environment Variables
+            3. Vercel Environment Variables
           </h2>
           <div className="space-y-2 text-[11px] font-mono">
             {[
