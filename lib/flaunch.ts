@@ -9,9 +9,16 @@
  * Install: npm install @flaunch/sdk viem
  */
 
-import { createFlaunch, ReadWriteFlaunchSDK, FlaunchAddress, FlaunchV1_1Address, PoolCreatedEventData } from "@flaunch/sdk";
+import { createFlaunch, type ReadWriteFlaunchSDK, FlaunchAddress, FlaunchV1_1Address } from "@flaunch/sdk";
 import { createPublicClient, createWalletClient, http, custom, type WalletClient, type PublicClient } from "viem";
 import { base } from "viem/chains";
+
+// Type for parsed pool creation data
+interface PoolCreatedEventData {
+  memecoin: string;
+  tokenId: bigint;
+  [key: string]: any;
+}
 
 // ============================================
 // CONFIG
@@ -38,11 +45,11 @@ const publicClient = createPublicClient({
  * Create a Flaunch SDK instance with write capabilities
  * Pass the walletClient from Privy
  */
-export function createFlaunchSDK(walletClient: WalletClient): ReadWriteFlaunchSDK {
+export function createFlaunchSDK(walletClient: WalletClient) {
   return createFlaunch({
     publicClient,
     walletClient,
-  }) as ReadWriteFlaunchSDK;
+  }) as any; // SDK types may vary between versions
 }
 
 /**
@@ -136,7 +143,7 @@ export async function flaunchAgentToken(
   });
 
   // Parse the transaction to get token details
-  const poolData: PoolCreatedEventData | null = await flaunchRead.getPoolCreatedFromTx(hash);
+  const poolData = await flaunchRead.getPoolCreatedFromTx(hash) as PoolCreatedEventData | null;
 
   if (!poolData) {
     throw new Error("Failed to parse flaunch transaction");
