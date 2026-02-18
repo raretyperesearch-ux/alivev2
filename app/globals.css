@@ -9,18 +9,18 @@
   --surface: #0c0f0d;
   --card: #111613;
   --card-hover: #161b18;
-  --accent: #b8f0c4;
-  --accent-bright: #d4ffd8;
-  --accent-dim: #6eb87a;
-  --green: #4ade80;
+  --accent: #00e85c;
+  --accent-bright: #33ff7a;
+  --accent-dim: #00b847;
+  --green: #00e85c;
   --blue: #7dd3fc;
   --amber: #fcd34d;
   --red: #fb7185;
   --text: #e8ede9;
   --text-secondary: #9ca89e;
   --text-muted: #4a5650;
-  --border: rgba(184, 240, 196, 0.06);
-  --border-hover: rgba(184, 240, 196, 0.14);
+  --border: rgba(0, 232, 92, 0.06);
+  --border-hover: rgba(0, 232, 92, 0.14);
   --gradient-hero: radial-gradient(ellipse 120% 80% at 30% 20%, rgba(120, 180, 130, 0.12) 0%, rgba(180, 160, 100, 0.06) 40%, transparent 70%);
 }
 
@@ -55,7 +55,7 @@ html, body {
 
 /* Selection */
 ::selection {
-  background: rgba(184, 240, 196, 0.2);
+  background: rgba(0, 232, 92, 0.2);
   color: #fff;
 }
 
@@ -80,7 +80,7 @@ html, body {
 /* Input focus */
 input:focus, textarea:focus {
   border-color: var(--accent) !important;
-  box-shadow: 0 0 0 3px rgba(184, 240, 196, 0.08);
+  box-shadow: 0 0 0 3px rgba(0, 232, 92, 0.08);
   outline: none;
 }
 
@@ -95,12 +95,12 @@ input:focus, textarea:focus {
   letter-spacing: 0.3px;
   cursor: pointer;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 20px rgba(184, 240, 196, 0.12);
+  box-shadow: 0 2px 20px rgba(0, 232, 92, 0.12);
 }
 .btn-primary:hover {
   background: var(--accent-bright);
   transform: translateY(-1px);
-  box-shadow: 0 4px 30px rgba(184, 240, 196, 0.2);
+  box-shadow: 0 4px 30px rgba(0, 232, 92, 0.2);
 }
 .btn-primary:active {
   transform: translateY(0);
@@ -118,7 +118,7 @@ input:focus, textarea:focus {
 .btn-ghost:hover {
   border-color: var(--border-hover);
   color: var(--text);
-  background: rgba(184, 240, 196, 0.03);
+  background: rgba(0, 232, 92, 0.03);
 }
 
 /* Noise overlay */
@@ -173,7 +173,7 @@ input:focus, textarea:focus {
 
 /* Legacy compatibility */
 .glow-accent {
-  box-shadow: 0 0 40px rgba(184, 240, 196, 0.06);
+  box-shadow: 0 0 40px rgba(0, 232, 92, 0.06);
 }
 
 /* alife-* var aliases for backward compat */
