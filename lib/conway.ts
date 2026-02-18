@@ -28,6 +28,7 @@ export interface ConwayAgentConfig {
   creatorAddress: string;
   tokenAddress: string;
   model?: string;
+  agentId?: string;
 }
 
 export interface ConwayAgent {
@@ -79,6 +80,7 @@ export async function provisionAgent(config: ConwayAgentConfig): Promise<ConwayA
         creator_address: config.creatorAddress,
         token_address: config.tokenAddress,
         model: config.model || "claude-sonnet-4-20250514",
+        agent_id: config.agentId,
       }),
     });
 

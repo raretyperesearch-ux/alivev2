@@ -134,6 +134,7 @@ export async function launchAgent(
       creatorAddress: params.creatorAddress,
       tokenAddress: flaunchResult?.memecoinAddress || "pending",
       model: params.model,
+      agentId: agent.id,
     });
 
     // Update agent with Conway details
