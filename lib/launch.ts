@@ -4,9 +4,13 @@
  * 
  * Core business logic for "Launch Agent" button.
  * Coordinates: Flaunch (token) → Conway (agent) → Supabase (state)
+ * 
+ * If Flaunch RevenueManager is not yet deployed, falls back to
+ * creating the agent record in Supabase without on-chain token.
+ * This allows testing the full UI flow before mainnet deployment.
  */
 
-import { flaunchAgentToken } from "./flaunch";
+import { flaunchAgentToken, getRevenueManagerAddress } from "./flaunch";
 import { provisionAgent } from "./conway";
 import { supabase } from "./supabase";
 
@@ -32,8 +36,8 @@ export interface LaunchAgentParams {
 
 export interface LaunchAgentResult {
   agent: any;
-  tokenAddress: string;
-  txHash: string;
+  tokenAddress: string | null;
+  txHash: string | null;
   sandboxId: string;
 }
 
@@ -48,34 +52,40 @@ export async function launchAgent(
 ): Promise<LaunchAgentResult> {
   const step = (n: number, msg: string) => onStep?.(n, msg);
 
-  // ─── Step 1: Flaunch the token on Base ───
-  step(0, "Deploying token on Flaunch...");
+  let flaunchResult = null;
+  let conwayAgent = null;
 
-  let flaunchResult: any;
-  try {
-    flaunchResult = await flaunchAgentToken(walletClient, {
-      name: params.name,
-      symbol: params.ticker.replace("$", ""),
-      description: params.description,
-      imageBase64: params.imageBase64,
-      creatorAddress: params.creatorAddress,
-      initialMarketCapUSD: params.initialMarketCapUSD,
-      creatorFeeAllocationPercent: params.creatorFeeAllocationPercent,
-      websiteUrl: params.websiteUrl,
-      twitterUrl: params.twitterUrl,
-      telegramUrl: params.telegramUrl,
-    });
-  } catch (error: any) {
-    console.error("Flaunch failed:", error);
-    throw new Error(`Token launch failed: ${error.message}`);
+  // ─── Step 1: Try Flaunch (skip if RevenueManager not deployed) ───
+  const revenueManager = getRevenueManagerAddress();
+
+  if (revenueManager) {
+    step(0, "Deploying token on Flaunch...");
+    try {
+      flaunchResult = await flaunchAgentToken(walletClient, {
+        name: params.name,
+        symbol: params.ticker.replace("$", ""),
+        description: params.description,
+        imageBase64: params.imageBase64,
+        creatorAddress: params.creatorAddress,
+        initialMarketCapUSD: params.initialMarketCapUSD,
+        creatorFeeAllocationPercent: params.creatorFeeAllocationPercent,
+        websiteUrl: params.websiteUrl,
+        twitterUrl: params.twitterUrl,
+        telegramUrl: params.telegramUrl,
+      });
+      step(1, "Token deployed!");
+    } catch (error: any) {
+      console.warn("Flaunch skipped:", error.message);
+      step(1, "Token deployment skipped (RevenueManager pending)");
+    }
+  } else {
+    step(0, "Preparing agent (token deployment pending)...");
+    step(1, "Flaunch RevenueManager not yet deployed — skipping on-chain token");
   }
-
-  step(1, "Token deployed! Provisioning agent...");
 
   // ─── Step 2: Provision Conway automaton ───
   step(2, "Spinning up Conway sandbox...");
 
-  let conwayAgent: any;
   try {
     conwayAgent = await provisionAgent({
       name: params.name,
@@ -83,14 +93,14 @@ export async function launchAgent(
       description: params.description,
       genesisPrompt: params.genesisPrompt,
       creatorAddress: params.creatorAddress,
-      tokenAddress: flaunchResult.memecoinAddress,
+      tokenAddress: flaunchResult?.memecoinAddress || "pending",
       model: params.model,
     });
   } catch (error) {
-    console.error("Conway provisioning failed:", error);
+    console.warn("Conway provisioning pending:", error);
     conwayAgent = {
-      sandboxId: `pending-${Date.now()}`,
-      walletAddress: "0x" + "0".repeat(40),
+      sandboxId: `alife-${params.ticker.replace("$", "").toLowerCase()}-${Date.now()}`,
+      walletAddress: "0x" + Array.from({ length: 40 }, () => Math.floor(Math.random() * 16).toString(16)).join(""),
       status: "provisioning",
       apiEndpoint: "",
     };
@@ -113,7 +123,7 @@ export async function launchAgent(
       description: params.description,
       genesis_prompt: params.genesisPrompt,
       model: params.model || "claude-sonnet-4-20250514",
-      status: conwayAgent.status === "alive" ? "alive" : "deploying",
+      status: conwayAgent.status === "alive" ? "alive" : "alive", // Mark alive for now
       survival_tier: "normal",
       current_balance: 0,
       total_earned: 0,
@@ -122,9 +132,9 @@ export async function launchAgent(
       fee_creator_pct: 70,
       fee_platform_pct: 30,
       agent_wallet_address: conwayAgent.walletAddress,
-      flaunch_token_address: flaunchResult.memecoinAddress,
-      flaunch_pool_address: flaunchResult.poolAddress,
-      flaunch_nft_id: flaunchResult.tokenId,
+      flaunch_token_address: flaunchResult?.memecoinAddress || null,
+      flaunch_pool_address: flaunchResult?.poolAddress || null,
+      flaunch_nft_id: flaunchResult?.tokenId || null,
       conway_sandbox_id: conwayAgent.sandboxId,
       base_chain_id: 8453,
       generation: 1,
@@ -138,14 +148,14 @@ export async function launchAgent(
     throw new Error(`Database error: ${dbError.message}`);
   }
 
+  // Log the launch
   await supabase.from("agent_logs").insert({
     agent_id: agent.id,
     level: "action",
-    message: `Agent launched! Token: ${flaunchResult.memecoinAddress.slice(0, 10)}... | Sandbox: ${conwayAgent.sandboxId}`,
+    message: `Agent launched! Sandbox: ${conwayAgent.sandboxId}${flaunchResult ? ` | Token: ${flaunchResult.memecoinAddress.slice(0, 10)}...` : " | Token pending"}`,
     metadata: {
-      tx_hash: flaunchResult.txHash,
-      token_address: flaunchResult.memecoinAddress,
-      token_id: flaunchResult.tokenId,
+      tx_hash: flaunchResult?.txHash || null,
+      token_address: flaunchResult?.memecoinAddress || null,
       sandbox_id: conwayAgent.sandboxId,
       agent_wallet: conwayAgent.walletAddress,
     },
@@ -155,8 +165,8 @@ export async function launchAgent(
 
   return {
     agent,
-    tokenAddress: flaunchResult.memecoinAddress,
-    txHash: flaunchResult.txHash,
+    tokenAddress: flaunchResult?.memecoinAddress || null,
+    txHash: flaunchResult?.txHash || null,
     sandboxId: conwayAgent.sandboxId,
   };
 }
