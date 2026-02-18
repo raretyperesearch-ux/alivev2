@@ -18,7 +18,7 @@ const ADMIN_WALLETS = [
 interface AgentFeeInfo {
   id: string;
   name: string;
-  flaunch_token_address: string | null;
+  token_address: string | null;
   split_manager_address: string | null;
   claimable: string;
 }
@@ -54,8 +54,8 @@ export default function AdminPage() {
     try {
       const { data: agentsData } = await supabase
         .from("agents")
-        .select("id, name, flaunch_token_address, split_manager_address")
-        .not("flaunch_token_address", "is", null);
+        .select("id, name, token_address, split_manager_address")
+        .not("token_address", "is", null);
 
       if (!agentsData || agentsData.length === 0) {
         setAgents([]);
@@ -68,9 +68,9 @@ export default function AdminPage() {
       const withBalances = await Promise.all(
         agentsData.map(async (a) => {
           let claimable = "0";
-          if (a.flaunch_token_address) {
+          if (a.split_manager_address) {
             try {
-              const bal = await getPlatformClaimableBalance(a.flaunch_token_address as `0x${string}`);
+              const bal = await getPlatformClaimableBalance(a.split_manager_address as `0x${string}`);
               claimable = parseFloat(formatEther(bal)).toFixed(6);
             } catch {}
           }
@@ -87,7 +87,7 @@ export default function AdminPage() {
   };
 
   const handleClaim = async (agent: AgentFeeInfo) => {
-    if (!wallet || !agent.flaunch_token_address) return;
+    if (!wallet || !agent.split_manager_address) return;
     setClaimingId(agent.id);
     setClaimStatus("Sign tx in wallet...");
     setError("");
@@ -102,7 +102,7 @@ export default function AdminPage() {
       });
 
       const { claimPlatformFees } = await import("@/lib/flaunch");
-      const txHash = await claimPlatformFees(wc, agent.flaunch_token_address as `0x${string}`);
+      const txHash = await claimPlatformFees(wc, agent.split_manager_address as `0x${string}`);
       setClaimStatus(`✅ Claimed! ${txHash.slice(0, 14)}…`);
 
       // Refresh
@@ -185,7 +185,7 @@ export default function AdminPage() {
           </div>
 
           <div className="text-[11px] text-[var(--alife-dim)] leading-relaxed mb-4">
-            Platform wallet holds all Flaunch NFTs. Claim fees per token, then pay creators their 70%.
+            Each agent token has its own SplitManager. Claim your 30% from each below.
           </div>
 
           {agents.length === 0 && !loadingAgents && (
@@ -203,9 +203,9 @@ export default function AdminPage() {
               <div>
                 <div className="text-white text-xs font-bold">{agent.name}</div>
                 <div className="text-[var(--alife-dim)] text-[9px] font-mono">
-                  {agent.flaunch_token_address
-                    ? `Token: ${agent.flaunch_token_address.slice(0, 10)}…${agent.flaunch_token_address.slice(-6)}`
-                    : "No token"}
+                  {agent.split_manager_address
+                    ? `SM: ${agent.split_manager_address.slice(0, 10)}…${agent.split_manager_address.slice(-6)}`
+                    : "No SplitManager"}
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -214,10 +214,10 @@ export default function AdminPage() {
                 </span>
                 <button
                   onClick={() => handleClaim(agent)}
-                  disabled={!agent.flaunch_token_address || claimingId === agent.id || agent.claimable === "0" || agent.claimable === "0.000000"}
+                  disabled={!agent.split_manager_address || claimingId === agent.id || agent.claimable === "0" || agent.claimable === "0.000000"}
                   className="btn-primary px-3 py-1.5 text-[10px]"
                   style={{
-                    opacity: (!agent.flaunch_token_address || agent.claimable === "0" || agent.claimable === "0.000000") ? 0.4 : 1,
+                    opacity: (!agent.split_manager_address || agent.claimable === "0" || agent.claimable === "0.000000") ? 0.4 : 1,
                   }}
                 >
                   {claimingId === agent.id ? "..." : "CLAIM"}
@@ -251,7 +251,7 @@ export default function AdminPage() {
             Treasury: <span className="text-[var(--alife-yellow)]">{ALIFE_TREASURY}</span>
           </div>
           <div className="text-[10px] text-[var(--alife-dim)] font-mono mt-1">
-            Model: Platform wallet holds Flaunch NFT, claims all fees, pays creators 70%
+            Manager: AddressFeeSplitManager (per-token, no deploy needed)
           </div>
         </div>
 

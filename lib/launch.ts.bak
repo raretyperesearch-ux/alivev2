@@ -7,14 +7,9 @@
  * 
  * Flaunch token deployment is REQUIRED — if it fails, the launch fails.
  * The user MUST sign the on-chain transaction via their Privy wallet.
- * 
- * Fee model:
- * - Platform wallet receives Flaunch NFT + all trading fees
- * - Creator's wallet stored in DB for payout tracking
- * - Creator gets 70%, platform keeps 30%
  */
 
-import { flaunchAgentToken, getRevenueManagerAddress } from "./flaunch";
+import { flaunchAgentToken } from "./flaunch";
 import { provisionAgent } from "./conway";
 import { supabase } from "./supabase";
 
@@ -50,7 +45,7 @@ export interface LaunchAgentResult {
 // ============================================
 
 export async function launchAgent(
-  walletClient,
+  walletClient: any,
   params: LaunchAgentParams,
   onStep?: (step: number, message: string) => void
 ): Promise<LaunchAgentResult> {
@@ -59,13 +54,7 @@ export async function launchAgent(
     onStep?.(n, msg);
   };
 
-  // --- Step 0: Verify config ---
-  const treasuryCheck = getRevenueManagerAddress();
-  if (!treasuryCheck) {
-    throw new Error("Platform treasury not configured.");
-  }
-
-  // --- Step 1: Deploy token on Flaunch ---
+  // ─── Step 1: Deploy token on Flaunch with SplitManager ───
   step(0, "Deploying token on Flaunch…");
 
   let flaunchResult;
@@ -75,7 +64,7 @@ export async function launchAgent(
       symbol: params.ticker.replace("$", ""),
       description: params.description,
       imageBase64: params.imageBase64,
-      creatorAddress: params.creatorAddress,
+      creatorAddress: params.creatorAddress as `0x${string}`,
       initialMarketCapUSD: params.initialMarketCapUSD,
       creatorFeeAllocationPercent: params.creatorFeeAllocationPercent,
       websiteUrl: params.websiteUrl,
@@ -83,7 +72,7 @@ export async function launchAgent(
       telegramUrl: params.telegramUrl,
     });
     console.log("[launch] Flaunch result:", flaunchResult);
-  } catch (error) {
+  } catch (error: any) {
     console.error("[launch] Flaunch FAILED:", error);
     if (error.message?.includes("User rejected") || error.message?.includes("denied")) {
       throw new Error("Transaction rejected — you need to sign the Flaunch transaction to deploy your token.");
@@ -93,7 +82,7 @@ export async function launchAgent(
 
   step(1, "Token deployed on Base!");
 
-  // --- Step 2: Save to Supabase ---
+  // ─── Step 2: Save to Supabase ───
   step(2, "Creating agent record…");
 
   const ticker = params.ticker.startsWith("$") ? params.ticker : `$${params.ticker}`;
@@ -102,7 +91,6 @@ export async function launchAgent(
     .from("agents")
     .insert({
       creator_id: params.creatorId,
-      creator_wallet_address: params.creatorAddress,  // Track who to pay
       name: params.name,
       ticker,
       description: params.description,
@@ -116,14 +104,12 @@ export async function launchAgent(
       total_trading_fees: 0,
       fee_creator_pct: 70,
       fee_platform_pct: 30,
-      creator_fees_owed: 0,
-      creator_fees_paid: 0,
       agent_wallet_address: "pending",
       flaunch_token_address: flaunchResult.memecoinAddress,
       flaunch_pool_address: flaunchResult.poolAddress || null,
       flaunch_nft_id: flaunchResult.tokenId,
       flaunch_tx_hash: flaunchResult.txHash,
-      split_manager_address: null,
+      split_manager_address: flaunchResult.splitManagerAddress || null,
       conway_sandbox_id: "pending",
       base_chain_id: 8453,
       generation: 1,
@@ -137,7 +123,7 @@ export async function launchAgent(
     throw new Error(`Database error: ${dbError.message}`);
   }
 
-  // --- Step 3: Provision Conway agent ---
+  // ─── Step 3: Provision Conway agent ───
   step(3, "Spinning up Conway sandbox…");
 
   let conwayAgent;
@@ -161,7 +147,7 @@ export async function launchAgent(
       status: "alive",
     }).eq("id", agent.id);
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("[launch] Conway provisioning failed:", error);
     conwayAgent = {
       sandboxId: `pending-${Date.now()}`,
@@ -187,7 +173,6 @@ export async function launchAgent(
       token_address: flaunchResult.memecoinAddress,
       sandbox_id: conwayAgent.sandboxId,
       agent_wallet: conwayAgent.walletAddress,
-      creator_wallet: params.creatorAddress,
     },
   });
 
@@ -205,7 +190,7 @@ export async function launchAgent(
 // AGENT LIFECYCLE
 // ============================================
 
-export async function fundAgentWallet(agentId, amount, funderId) {
+export async function fundAgentWallet(agentId: string, amount: number, funderId: string) {
   const { data: agent } = await supabase
     .from("agents")
     .select("conway_sandbox_id, agent_wallet_address")
@@ -228,7 +213,7 @@ export async function fundAgentWallet(agentId, amount, funderId) {
   });
 }
 
-export async function terminateAgent(agentId) {
+export async function terminateAgent(agentId: string) {
   await supabase.from("agents").update({
     status: "dead",
     survival_tier: "dead",

@@ -2,32 +2,23 @@
 /**
  * Alive Agents v2 × Flaunch Integration
  * 
- * Uses @flaunch/sdk with AddressFeeSplitManager:
- * - Each token launch creates its own split manager
- * - Creator gets 70%, platform treasury gets 30%
- * - Each address claims independently with claim()
- * - No separate RevenueManager deploy needed
- * 
- * Install: npm install @flaunch/sdk viem
+ * Simple approach:
+ * - flaunchIPFS() deploys tokens (proven working)
+ * - Platform wallet receives the Flaunch NFT + all trading fees
+ * - Creator payouts tracked in Supabase, paid out separately
+ * - Fees queried via Flaunch REST API per token
  */
 
-import { createFlaunch, type ReadWriteFlaunchSDK } from "@flaunch/sdk";
-import { createPublicClient, http, type WalletClient } from "viem";
+import { createFlaunch } from "@flaunch/sdk";
+import { createPublicClient, http } from "viem";
 import { base } from "viem/chains";
-
-// Type for parsed pool creation data
-interface PoolCreatedEventData {
-  memecoin: string;
-  tokenId: bigint;
-  [key: string]: any;
-}
 
 // ============================================
 // CONFIG
 // ============================================
 
-// Platform treasury — receives 30% of fees
-const ALIFE_TREASURY = (process.env.NEXT_PUBLIC_ALIFE_TREASURY || "0xA660a38f40a519F2E351Cc9A5CA2f5feE1a9BE0D") as `0x${string}`;
+const ALIFE_TREASURY = (process.env.NEXT_PUBLIC_ALIFE_TREASURY || "0xA660a38f40a519F2E351Cc9A5CA2f5feE1a9BE0D");
+const FLAUNCH_API = "https://api.flaunch.gg";
 
 // ============================================
 // CLIENT SETUP
@@ -38,95 +29,44 @@ const publicClient = createPublicClient({
   transport: http(process.env.NEXT_PUBLIC_BASE_RPC_URL || "https://mainnet.base.org"),
 });
 
-/**
- * Create a Flaunch SDK instance with write capabilities
- */
 export function createFlaunchSDK(walletClient) {
-  return createFlaunch({
-    publicClient: publicClient,
-    walletClient: walletClient,
-  });
+  return createFlaunch({ publicClient, walletClient });
 }
 
-/**
- * Create a read-only Flaunch SDK instance
- */
 export function createFlaunchReadSDK() {
-  return createFlaunch({ publicClient: publicClient });
+  return createFlaunch({ publicClient });
 }
 
 // ============================================
-// LAUNCH: Flaunch a token with SplitManager
+// LAUNCH — simple flaunchIPFS, platform gets NFT
 // ============================================
 
-export interface LaunchAgentTokenParams {
-  name: string;
-  symbol: string;
-  description: string;
-  imageBase64: string;
-  creatorAddress: `0x${string}`;
-  initialMarketCapUSD?: number;
-  creatorFeeAllocationPercent?: number;
-  fairLaunchDurationSeconds?: number;
-  websiteUrl?: string;
-  twitterUrl?: string;
-  telegramUrl?: string;
-}
-
-export interface LaunchResult {
-  txHash: `0x${string}`;
-  memecoinAddress: `0x${string}`;
-  tokenId: number;
-  poolAddress: `0x${string}` | null;
-  splitManagerAddress: `0x${string}` | null;
-}
-
-/**
- * Flaunch a token for a new Alive Agent
- * Uses flaunchIPFSWithSplitManager — no RevenueManager needed
- * Creator gets 70% of fees, ALiFe treasury gets 30%
- */
-export async function flaunchAgentToken(
-  walletClient,
-  params: LaunchAgentTokenParams
-): Promise<LaunchResult> {
+export async function flaunchAgentToken(walletClient, params) {
   const flaunch = createFlaunchSDK(walletClient);
   const flaunchRead = createFlaunchReadSDK();
 
   const launchParams = {
     name: params.name,
     symbol: params.symbol,
-    creator: params.creatorAddress,
-    creatorFeeAllocationPercent: 100,
+    creator: ALIFE_TREASURY,           // Platform wallet gets NFT + fees
+    creatorFeeAllocationPercent: 100,   // 100% of swap fees go to NFT holder (us)
     fairLaunchPercent: 0,
     fairLaunchDuration: 30 * 60,
     initialMarketCapUSD: params.initialMarketCapUSD ?? 1000,
-    // Split: 70% creator, 0% manager owner, 30% platform
-    // SDK requires managerOwnerSplitPercent (undocumented but required in v0.9.15)
-    creatorSplitPercent: 70,
-    managerOwnerSplitPercent: 0,
-    splitReceivers: [
-      {
-        address: ALIFE_TREASURY,
-        percent: 30,
-      },
-    ],
     metadata: {
       base64Image: params.imageBase64,
       description: params.description,
     },
   };
 
-  console.log("[flaunch] Launch params:", JSON.stringify({
+  console.log("[flaunch] Launching with params:", JSON.stringify({
     ...launchParams,
     metadata: { ...launchParams.metadata, base64Image: launchParams.metadata.base64Image?.slice(0, 50) + "..." },
   }, null, 2));
 
-  const hash = await flaunch.flaunchIPFSWithSplitManager(launchParams);
+  const hash = await flaunch.flaunchIPFS(launchParams);
 
-  // Parse the transaction to get token details
   const poolData = await flaunchRead.getPoolCreatedFromTx(hash);
-
   if (!poolData) {
     throw new Error("Failed to parse flaunch transaction");
   }
@@ -136,133 +76,153 @@ export async function flaunchAgentToken(
     memecoinAddress: poolData.memecoin,
     tokenId: Number(poolData.tokenId),
     poolAddress: poolData.poolAddress || null,
-    splitManagerAddress: poolData.managerAddress || poolData.treasuryManager || null,
+    splitManagerAddress: null,
   };
 }
 
 // ============================================
-// FEE CLAIMING (AddressFeeSplitManager)
+// FEE TRACKING — query accumulated fees per token
 // ============================================
 
-const SPLIT_MANAGER_ABI = [
-  {
-    inputs: [{ internalType: "address", name: "_recipient", type: "address" }],
-    name: "balances",
-    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [],
-    name: "claim",
-    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [],
-    name: "managerFees",
-    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [],
-    name: "creatorFees",
-    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
-    stateMutability: "view",
-    type: "function",
-  },
-] as const;
+/**
+ * Get total fees earned by a token from Flaunch API
+ * Returns fees in ETH (as a number)
+ */
+export async function getTokenFees(tokenAddress) {
+  try {
+    const res = await fetch(`${FLAUNCH_API}/v1/coins/${tokenAddress}?chainId=8453`);
+    if (!res.ok) return { totalFees: 0, claimableFees: 0 };
+    const data = await res.json();
+    return {
+      totalFees: parseFloat(data.totalFees || data.total_fees || "0"),
+      claimableFees: parseFloat(data.claimableFees || data.claimable_fees || "0"),
+    };
+  } catch (err) {
+    console.error("[flaunch] Failed to fetch token fees:", err);
+    return { totalFees: 0, claimableFees: 0 };
+  }
+}
 
 /**
- * Check claimable balance for an address on a specific SplitManager
+ * Calculate creator's share of fees for an agent
+ * Default: creator gets 70%, platform keeps 30%
  */
-export async function getSplitManagerBalance(splitManagerAddress, recipient) {
+export function calculateCreatorShare(totalFees, creatorPct = 70) {
+  const creatorShare = (totalFees * creatorPct) / 100;
+  const platformShare = totalFees - creatorShare;
+  return { creatorShare, platformShare };
+}
+
+/**
+ * Get fee summary for an agent (for UI display)
+ */
+export async function getAgentFeeSummary(tokenAddress, creatorPct = 70) {
+  const { totalFees, claimableFees } = await getTokenFees(tokenAddress);
+  const { creatorShare, platformShare } = calculateCreatorShare(totalFees, creatorPct);
+  return {
+    totalFeesETH: totalFees,
+    claimableFeesETH: claimableFees,
+    creatorShareETH: creatorShare,
+    platformShareETH: platformShare,
+    creatorPct,
+    platformPct: 100 - creatorPct,
+  };
+}
+
+// ============================================
+// PLATFORM FEE CLAIMING (NFT holder claims all)
+// ============================================
+
+/**
+ * Claim all accumulated fees for a token
+ * Must be called by the NFT holder (platform wallet)
+ * Uses SDK's withdrawCreatorRevenue — sends fees to connected wallet
+ */
+export async function claimPlatformFees(walletClient, tokenAddress) {
+  const flaunch = createFlaunchSDK(walletClient);
   try {
-    return await publicClient.readContract({
-      address: splitManagerAddress,
-      abi: SPLIT_MANAGER_ABI,
-      functionName: "balances",
-      args: [recipient],
+    // withdrawCreatorRevenue sends all accumulated fees to the connected wallet
+    // The platform wallet is the NFT holder, so it can call this
+    const hash = await flaunch.withdrawCreatorRevenue({
+      recipient: ALIFE_TREASURY,
     });
+    return hash;
+  } catch (err) {
+    console.error("[flaunch] Claim failed:", err);
+    throw err;
+  }
+}
+
+// ============================================
+// CREATOR CLAIM HELPERS (for agent page UI)
+// ============================================
+
+/**
+ * Get how much a creator can claim for their agent
+ * Since platform wallet holds the NFT, this queries Flaunch API
+ * and returns the creator's 70% share
+ */
+export async function getCreatorClaimableBalance(
+  _creatorAddress: `0x${string}`,
+  tokenAddressOrSplitManager: `0x${string}`
+): Promise<bigint> {
+  try {
+    const { claimableFees } = await getTokenFees(tokenAddressOrSplitManager);
+    const creatorShare = (claimableFees * 70) / 100;
+    // Convert ETH float to wei bigint
+    const wei = BigInt(Math.floor(creatorShare * 1e18));
+    return wei;
   } catch {
     return BigInt(0);
   }
 }
 
 /**
- * Check claimable balance for creator
+ * Creator fee claiming — in this model the platform claims all and pays creators
+ * This is a no-op placeholder that shows the creator their pending balance
  */
-export async function getCreatorClaimableBalance(creatorAddress, splitManagerAddress) {
-  if (!splitManagerAddress) return BigInt(0);
-  return getSplitManagerBalance(splitManagerAddress, creatorAddress);
+export async function claimCreatorFees(
+  _walletClient: any,
+  _tokenAddressOrSplitManager: `0x${string}`
+): Promise<string> {
+  throw new Error(
+    "Creator fees are paid out by the platform. Your pending balance is tracked automatically — payouts are sent to your wallet periodically."
+  );
 }
 
 /**
- * Check how much ETH the platform can claim from a SplitManager
+ * Get platform's claimable balance for a token (for admin page)
  */
-export async function getPlatformClaimableBalance(splitManagerAddress) {
-  if (!splitManagerAddress) return BigInt(0);
-  return getSplitManagerBalance(splitManagerAddress, ALIFE_TREASURY);
-}
-
-/**
- * Claim fees from a SplitManager
- * Any valid recipient (creator or split receiver) can call this
- */
-export async function claimFees(walletClient, splitManagerAddress) {
-  const [account] = await walletClient.getAddresses();
-  const hash = await walletClient.writeContract({
-    address: splitManagerAddress,
-    abi: SPLIT_MANAGER_ABI,
-    functionName: "claim",
-    account,
-    chain: base,
-  });
-  return hash;
-}
-
-/**
- * Convenience: claim creator fees
- */
-export async function claimCreatorFees(walletClient, splitManagerAddress) {
-  if (!splitManagerAddress) throw new Error("No SplitManager address");
-  return claimFees(walletClient, splitManagerAddress);
-}
-
-/**
- * Convenience: claim platform fees
- */
-export async function claimPlatformFees(walletClient, splitManagerAddress) {
-  if (!splitManagerAddress) throw new Error("No SplitManager address");
-  return claimFees(walletClient, splitManagerAddress);
+export async function getPlatformClaimableBalance(
+  tokenAddressOrSplitManager: `0x${string}`
+): Promise<bigint> {
+  try {
+    const { claimableFees } = await getTokenFees(tokenAddressOrSplitManager);
+    const wei = BigInt(Math.floor(claimableFees * 1e18));
+    return wei;
+  } catch {
+    return BigInt(0);
+  }
 }
 
 // ============================================
 // READ HELPERS
 // ============================================
 
-/**
- * Get token metadata (name, symbol, image) for a flaunched coin
- */
 export async function getTokenMetadata(coinAddress) {
   const flaunchRead = createFlaunchReadSDK();
   return flaunchRead.getCoinMetadata(coinAddress);
 }
 
-/**
- * Get the treasury address
- */
 export function getTreasuryAddress() {
   return ALIFE_TREASURY;
 }
 
-// Legacy exports for backward compat with launch.ts
-export function deployRevenueManager(_walletClient) {
-  throw new Error("RevenueManager is deprecated. Using AddressFeeSplitManager now — no deploy needed.");
+// Legacy compat — launch.ts checks this
+export function getRevenueManagerAddress() {
+  return ALIFE_TREASURY;
 }
 
-export function getRevenueManagerAddress() {
-  return null;
+export function deployRevenueManager() {
+  throw new Error("Not needed — using simple flaunchIPFS now");
 }

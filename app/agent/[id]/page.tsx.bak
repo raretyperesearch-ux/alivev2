@@ -214,9 +214,9 @@ export default function AgentPage() {
         if (data && (data as any).soul_md) setSoulMd((data as any).soul_md);
       });
 
-    // Fetch claimable fees for creator (queries Flaunch API via token address)
-    if (wallets?.[0]?.address && agent?.flaunch_token_address) {
-      getCreatorClaimableBalance(wallets[0].address as `0x${string}`, agent.flaunch_token_address as `0x${string}`)
+    // Fetch claimable fees from SplitManager
+    if (wallets?.[0]?.address && agent?.split_manager_address) {
+      getCreatorClaimableBalance(wallets[0].address as `0x${string}`, agent.split_manager_address as `0x${string}`)
         .then((balance) => {
           setClaimable(parseFloat(formatEther(balance)).toFixed(6));
         })
@@ -254,11 +254,11 @@ export default function AgentPage() {
         transport: custom(provider),
       });
 
-      const txHash = await claimCreatorFees(walletClient, agent?.flaunch_token_address as `0x${string}`);
+      const txHash = await claimCreatorFees(walletClient, agent?.split_manager_address as `0x${string}`);
       console.log("Claim tx:", txHash);
 
       // Refresh balance
-      const newBalance = await getCreatorClaimableBalance(wallet.address as `0x${string}`, agent?.flaunch_token_address as `0x${string}`);
+      const newBalance = await getCreatorClaimableBalance(wallet.address as `0x${string}`, agent?.split_manager_address as `0x${string}`);
       setClaimable(parseFloat(formatEther(newBalance)).toFixed(6));
 
       // Log it
