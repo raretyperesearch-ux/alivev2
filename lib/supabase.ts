@@ -30,6 +30,7 @@ export interface Agent {
   agent_wallet_address: string | null;
   flaunch_token_address: string | null;
   flaunch_pool_address: string | null;
+  split_manager_address: string | null;
   conway_sandbox_id: string | null;
   base_chain_id: number;
   generation: number;
