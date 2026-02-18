@@ -25,6 +25,9 @@ export interface Agent {
   total_earned: number;
   total_spent: number;
   total_trading_fees: number;
+  market_cap_usd: number;
+  volume_24h_usd: number;
+  last_token_sync: string | null;
   fee_creator_pct: number;
   fee_platform_pct: number;
   agent_wallet_address: string | null;
@@ -77,7 +80,7 @@ export async function getAgents(): Promise<Agent[]> {
   const { data, error } = await supabase
     .from("agents")
     .select("*")
-    .order("total_earned", { ascending: false });
+    .order("created_at", { ascending: false });
   if (error) throw error;
   return data || [];
 }
