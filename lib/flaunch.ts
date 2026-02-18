@@ -37,7 +37,7 @@ const ALIFE_TREASURY = (process.env.NEXT_PUBLIC_ALIFE_TREASURY || "0xA660a38f40a
 const ADDRESS_FEE_SPLIT_MANAGER = "0xfAB4BA48a322Efc8b25815448BE6018D211e89f3" as `0x${string}`;
 
 // 5 decimal precision: 100% = 10_000_000
-const VALID_SHARE_TOTAL = 10_000_000n;
+const VALID_SHARE_TOTAL = BigInt(10000000);
 
 // Creator gets 70%, platform gets 30%
 const CREATOR_SHARE_PERCENT = 70;
@@ -115,7 +115,7 @@ function encodeAddressFeeSplitInitData(
   creatorSharePercent: number,
   recipients: { address: `0x${string}`; percent: number }[]
 ): `0x${string}` {
-  const creatorShare = (BigInt(creatorSharePercent) * VALID_SHARE_TOTAL) / 100n;
+  const creatorShare = (BigInt(creatorSharePercent) * VALID_SHARE_TOTAL) / BigInt(100);
 
   const recipientShares = recipients.map((r) => ({
     recipient: r.address,
