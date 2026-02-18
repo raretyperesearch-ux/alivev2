@@ -110,8 +110,7 @@ export interface LaunchResult {
 
 /**
  * Flaunch a token for a new Alive Agent
- * Uses flaunchIPFSWithSplitManager — NFT stays with creator, fees auto-split
- * Creator gets 70%, Platform treasury gets 30%
+ * Uses flaunchIPFSWithSplitManager — creator keeps NFT, fees auto-split 70/30
  */
 export async function flaunchAgentToken(
   walletClient: WalletClient,
@@ -120,7 +119,7 @@ export async function flaunchAgentToken(
   const flaunch = createFlaunchSDK(walletClient);
   const flaunchRead = createFlaunchReadSDK();
 
-  // Use flaunchIPFSWithSplitManager — creator keeps NFT, fees split automatically
+  // Creator keeps NFT, fees split: 70% creator, 30% platform
   const hash = await flaunch.flaunchIPFSWithSplitManager({
     name: params.name,
     symbol: params.symbol,
@@ -129,7 +128,6 @@ export async function flaunchAgentToken(
     fairLaunchPercent: 0,
     fairLaunchDuration: params.fairLaunchDurationSeconds ?? 30 * 60,
     initialMarketCapUSD: params.initialMarketCapUSD ?? 10_000,
-    // Fee split: 70% to creator, 30% to platform treasury
     creatorSplitPercent: 70,
     managerOwnerSplitPercent: 0,
     splitReceivers: [
@@ -147,7 +145,6 @@ export async function flaunchAgentToken(
     },
   });
 
-  // Parse the transaction to get token details
   const poolData = await flaunchRead.getPoolCreatedFromTx(hash) as PoolCreatedEventData | null;
 
   if (!poolData) {
