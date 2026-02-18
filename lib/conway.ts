@@ -66,53 +66,40 @@ const CONWAY_API_KEY = process.env.CONWAY_API_KEY || "";
  * - Use Supabase Edge Functions to simulate the agent loop
  */
 export async function provisionAgent(config: ConwayAgentConfig): Promise<ConwayAgent> {
-  // Option 1: Conway Cloud API (when available)
-  if (CONWAY_API_KEY) {
-    try {
-      const response = await fetch(`${CONWAY_API_URL}/v1/automatons`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${CONWAY_API_KEY}`,
-        },
-        body: JSON.stringify({
-          name: config.name,
-          genesis_prompt: config.genesisPrompt,
-          creator_address: config.creatorAddress,
-          token_address: config.tokenAddress,
-          model: config.model || "claude-sonnet-4-20250514",
-          // Conway-specific config
-          survival_mode: true,
-          heartbeat_interval: 60, // seconds
-          skills: ["web-browsing", "code-execution", "file-io", "shell"],
-        }),
-      });
+  // Call our own API route which handles Conway provisioning server-side
+  // This keeps the CONWAY_API_KEY secret (not exposed to browser)
+  try {
+    const response = await fetch("/api/conway", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: config.name,
+        ticker: config.ticker,
+        genesis_prompt: config.genesisPrompt,
+        creator_address: config.creatorAddress,
+        token_address: config.tokenAddress,
+        model: config.model || "claude-sonnet-4-20250514",
+      }),
+    });
 
-      if (response.ok) {
-        const data = await response.json();
-        return {
-          sandboxId: data.sandbox_id,
-          walletAddress: data.wallet_address,
-          status: "alive",
-          apiEndpoint: `${CONWAY_API_URL}/v1/automatons/${data.sandbox_id}`,
-        };
-      }
-    } catch (error) {
-      console.error("Conway Cloud API failed, falling back:", error);
-    }
+    const data = await response.json();
+    return {
+      sandboxId: data.sandbox_id,
+      walletAddress: data.wallet_address,
+      status: data.status === "alive" ? "alive" : "provisioning",
+      apiEndpoint: `/api/conway`,
+    };
+  } catch (error) {
+    console.error("Conway provisioning failed:", error);
+    const sandboxId = `alife-${config.ticker.replace("$", "").toLowerCase()}-${Date.now()}`;
+    const walletAddress = generateDeterministicAddress(sandboxId);
+    return {
+      sandboxId,
+      walletAddress,
+      status: "provisioning",
+      apiEndpoint: "",
+    };
   }
-
-  // Option 2: Self-hosted provisioning via our infrastructure
-  // Generate a deterministic sandbox ID and wallet for now
-  const sandboxId = `alife-${config.ticker.replace("$", "").toLowerCase()}-${Date.now()}`;
-  const walletAddress = generateDeterministicAddress(sandboxId);
-
-  return {
-    sandboxId,
-    walletAddress,
-    status: "provisioning",
-    apiEndpoint: `${CONWAY_API_URL}/v1/automatons/${sandboxId}`,
-  };
 }
 
 /**

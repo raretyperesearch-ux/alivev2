@@ -83,34 +83,8 @@ export async function launchAgent(
     step(1, "Flaunch RevenueManager not yet deployed — skipping on-chain token");
   }
 
-  // ─── Step 2: Provision Conway automaton ───
-  step(2, "Spinning up Conway sandbox...");
-
-  try {
-    conwayAgent = await provisionAgent({
-      name: params.name,
-      ticker: params.ticker,
-      description: params.description,
-      genesisPrompt: params.genesisPrompt,
-      creatorAddress: params.creatorAddress,
-      tokenAddress: flaunchResult?.memecoinAddress || "pending",
-      model: params.model,
-    });
-  } catch (error) {
-    console.warn("Conway provisioning pending:", error);
-    conwayAgent = {
-      sandboxId: `alife-${params.ticker.replace("$", "").toLowerCase()}-${Date.now()}`,
-      walletAddress: "0x" + Array.from({ length: 40 }, () => Math.floor(Math.random() * 16).toString(16)).join(""),
-      status: "provisioning",
-      apiEndpoint: "",
-    };
-  }
-
-  step(3, "Agent wallet generated...");
-  step(4, "Writing genesis prompt...");
-
-  // ─── Step 3: Store in Supabase ───
-  step(5, "Saving to database...");
+  // ─── Step 2: Save to Supabase first (get agent_id) ───
+  step(2, "Creating agent record...");
 
   const ticker = params.ticker.startsWith("$") ? params.ticker : `$${params.ticker}`;
 
@@ -123,7 +97,7 @@ export async function launchAgent(
       description: params.description,
       genesis_prompt: params.genesisPrompt,
       model: params.model || "claude-sonnet-4-20250514",
-      status: conwayAgent.status === "alive" ? "alive" : "alive", // Mark alive for now
+      status: "deploying",
       survival_tier: "normal",
       current_balance: 0,
       total_earned: 0,
@@ -131,11 +105,11 @@ export async function launchAgent(
       total_trading_fees: 0,
       fee_creator_pct: 70,
       fee_platform_pct: 30,
-      agent_wallet_address: conwayAgent.walletAddress,
+      agent_wallet_address: "pending",
       flaunch_token_address: flaunchResult?.memecoinAddress || null,
       flaunch_pool_address: flaunchResult?.poolAddress || null,
       flaunch_nft_id: flaunchResult?.tokenId || null,
-      conway_sandbox_id: conwayAgent.sandboxId,
+      conway_sandbox_id: "pending",
       base_chain_id: 8453,
       generation: 1,
       children_count: 0,
@@ -147,6 +121,45 @@ export async function launchAgent(
     console.error("Supabase insert error:", dbError);
     throw new Error(`Database error: ${dbError.message}`);
   }
+
+  // ─── Step 3: Provision Conway with agent_id ───
+  step(3, "Spinning up Conway sandbox...");
+
+  try {
+    conwayAgent = await provisionAgent({
+      name: params.name,
+      ticker: params.ticker,
+      description: params.description,
+      genesisPrompt: params.genesisPrompt,
+      creatorAddress: params.creatorAddress,
+      tokenAddress: flaunchResult?.memecoinAddress || "pending",
+      model: params.model,
+    });
+
+    // Update agent with Conway details
+    await supabase.from("agents").update({
+      conway_sandbox_id: conwayAgent.sandboxId,
+      agent_wallet_address: conwayAgent.walletAddress,
+      status: "alive",
+    }).eq("id", agent.id);
+
+  } catch (error) {
+    console.warn("Conway provisioning pending:", error);
+    conwayAgent = {
+      sandboxId: `alife-${params.ticker.replace("$", "").toLowerCase()}-${Date.now()}`,
+      walletAddress: "0x" + Array.from({ length: 40 }, () => Math.floor(Math.random() * 16).toString(16)).join(""),
+      status: "provisioning",
+      apiEndpoint: "",
+    };
+    await supabase.from("agents").update({
+      conway_sandbox_id: conwayAgent.sandboxId,
+      agent_wallet_address: conwayAgent.walletAddress,
+      status: "alive",
+    }).eq("id", agent.id);
+  }
+
+  step(4, "Agent wallet generated...");
+  step(5, "Writing genesis prompt...");
 
   // Log the launch
   await supabase.from("agent_logs").insert({

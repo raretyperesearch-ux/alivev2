@@ -1,110 +1,49 @@
-/**
- * ALiFe — Deploy RevenueManager on Base Mainnet
- * 
- * Run this ONCE to deploy the RevenueManager contract.
- * This sets up the 70/30 fee split for all future agent tokens.
- * 
- * Prerequisites:
- *   - Node.js 18+
- *   - A funded wallet on Base mainnet (needs ~$1-5 in ETH for gas)
- *   - Your private key (NEVER commit this to git)
- * 
- * Usage:
- *   PRIVATE_KEY=0xYOUR_KEY node scripts/deploy-revenue-manager.mjs
- * 
- * After running:
- *   1. Copy the RevenueManager address from the output
- *   2. Add it to Vercel env vars as NEXT_PUBLIC_REVENUE_MANAGER_ADDRESS
- *   3. Add it to .env.local
- *   4. Redeploy
- */
-
-import { createPublicClient, createWalletClient, http } from "viem";
+import { createPublicClient, createWalletClient, http, formatEther } from "viem";
 import { base } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
-import { createFlaunch } from "@flaunch/sdk";
-
-// ============================================
-// CONFIG
-// ============================================
-
-const ALIFE_TREASURY = "0xA660a38f40a519F2E351Cc9A5CA2f5feE1a9BE0D";
-const PROTOCOL_FEE_PERCENT = 30; // ALiFe takes 30%, creator gets 70%
-
-// ============================================
-// MAIN
-// ============================================
 
 async function main() {
-  const privateKey = process.env.PRIVATE_KEY;
-  
-  if (!privateKey) {
-    console.error("❌ Missing PRIVATE_KEY environment variable");
-    console.error("Usage: PRIVATE_KEY=0xYOUR_KEY node scripts/deploy-revenue-manager.mjs");
+  const pk = process.env.PRIVATE_KEY;
+  if (!pk) { console.error("Missing PRIVATE_KEY"); process.exit(1); }
+
+  const acct = privateKeyToAccount(pk);
+  const pub = createPublicClient({ chain: base, transport: http("https://mainnet.base.org") });
+  const wal = createWalletClient({ account: acct, chain: base, transport: http("https://mainnet.base.org") });
+
+  const bal = await pub.getBalance({ address: acct.address });
+  console.log("Deployer:", acct.address);
+  console.log("Balance:", formatEther(bal), "ETH\n");
+
+  const txHash = await wal.sendTransaction({
+    to: "0x48af8b28DDC5e5A86c4906212fc35Fa808CA8763",
+    data: "0xb78a7fd6000000000000000000000000712fa8ddc7347b4b6b029aa21710f365cd02d898000000000000000000000000a660a38f40a519f2e351cc9a5ca2f5fee1a9be0d00000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000040000000000000000000000000a660a38f40a519f2e351cc9a5ca2f5fee1a9be0d0000000000000000000000000000000000000000000000000000000000000bb8",
+  });
+
+  console.log("TX sent:", txHash);
+  console.log("Waiting...\n");
+
+  const receipt = await pub.waitForTransactionReceipt({ hash: txHash });
+
+  if (receipt.status === "reverted") {
+    console.error("Reverted! https://basescan.org/tx/" + txHash);
     process.exit(1);
   }
 
-  console.log("◈ ALiFe — RevenueManager Deployment");
-  console.log("════════════════════════════════════");
-  console.log(`Network:        Base Mainnet (chainId: 8453)`);
-  console.log(`Treasury:       ${ALIFE_TREASURY}`);
-  console.log(`Protocol Fee:   ${PROTOCOL_FEE_PERCENT}%`);
-  console.log(`Creator Fee:    ${100 - PROTOCOL_FEE_PERCENT}%`);
-  console.log("");
-
-  // Create clients
-  const account = privateKeyToAccount(privateKey);
-  console.log(`Deployer:       ${account.address}`);
-
-  const publicClient = createPublicClient({
-    chain: base,
-    transport: http("https://mainnet.base.org"),
-  });
-
-  const walletClient = createWalletClient({
-    account,
-    chain: base,
-    transport: http("https://mainnet.base.org"),
-  });
-
-  // Check balance
-  const balance = await publicClient.getBalance({ address: account.address });
-  const ethBalance = Number(balance) / 1e18;
-  console.log(`Balance:        ${ethBalance.toFixed(6)} ETH`);
-
-  if (ethBalance < 0.001) {
-    console.error("❌ Insufficient balance. Need at least 0.001 ETH for gas.");
-    process.exit(1);
+  let addr = null;
+  for (const log of receipt.logs) {
+    for (const t of (log.topics || [])) {
+      if (t.length === 66) {
+        const a = "0x" + t.slice(26);
+        if (a.length === 42 && !a.startsWith("0x000000000000000000000000000000000000")) { addr = a; }
+      }
+    }
   }
 
-  console.log("");
-  console.log("Deploying RevenueManager...");
-
-  // Deploy
-  const flaunch = createFlaunch({ publicClient, walletClient });
-
-  const revenueManagerAddress = await flaunch.deployRevenueManager({
-    protocolRecipient: ALIFE_TREASURY,
-    protocolFeePercent: PROTOCOL_FEE_PERCENT,
-  });
-
-  console.log("");
-  console.log("════════════════════════════════════");
-  console.log("✅ RevenueManager Deployed!");
-  console.log(`Address: ${revenueManagerAddress}`);
-  console.log("════════════════════════════════════");
-  console.log("");
-  console.log("Next steps:");
-  console.log("1. Add to Vercel env vars:");
-  console.log(`   NEXT_PUBLIC_REVENUE_MANAGER_ADDRESS=${revenueManagerAddress}`);
-  console.log(`   NEXT_PUBLIC_ALIFE_TREASURY=${ALIFE_TREASURY}`);
-  console.log("2. Add to .env.local (same values)");
-  console.log("3. Redeploy on Vercel");
-  console.log("");
-  console.log("Every agent token launched after this will auto-split fees 70/30.");
+  console.log("Done! https://basescan.org/tx/" + txHash);
+  if (addr) console.log("RevenueManager:", addr);
+  console.log("\nVercel env vars:");
+  if (addr) console.log("  NEXT_PUBLIC_REVENUE_MANAGER_ADDRESS=" + addr);
+  console.log("  NEXT_PUBLIC_ALIFE_TREASURY=0xA660a38f40a519F2E351Cc9A5CA2f5feE1a9BE0D");
 }
 
-main().catch((err) => {
-  console.error("❌ Deployment failed:", err.message);
-  process.exit(1);
-});
+main().catch(e => { console.error("Failed:", e.message); process.exit(1); });
