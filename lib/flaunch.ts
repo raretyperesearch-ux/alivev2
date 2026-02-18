@@ -47,16 +47,16 @@ const publicClient = createPublicClient({
  */
 export function createFlaunchSDK(walletClient: WalletClient) {
   return createFlaunch({
-    publicClient,
-    walletClient,
-  }) as any; // SDK types may vary between versions
+    publicClient: publicClient as any,
+    walletClient: walletClient as any,
+  }) as any;
 }
 
 /**
  * Create a read-only Flaunch SDK instance
  */
 export function createFlaunchReadSDK() {
-  return createFlaunch({ publicClient });
+  return createFlaunch({ publicClient: publicClient as any }) as any;
 }
 
 // ============================================
