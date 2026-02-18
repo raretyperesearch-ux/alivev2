@@ -1,13 +1,9 @@
 // @ts-nocheck
 /**
- * ALiFe Launch Orchestrator
+ * Alive Agents v2 Launch Orchestrator
  * 
  * Core business logic for "Launch Agent" button.
  * Coordinates: Flaunch (token) → Conway (agent) → Supabase (state)
- * 
- * If Flaunch RevenueManager is not yet deployed, falls back to
- * creating the agent record in Supabase without on-chain token.
- * This allows testing the full UI flow before mainnet deployment.
  */
 
 import { flaunchAgentToken, getRevenueManagerAddress } from "./flaunch";

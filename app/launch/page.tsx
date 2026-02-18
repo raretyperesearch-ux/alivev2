@@ -10,12 +10,12 @@ import { launchAgent } from "@/lib/launch";
 import { supabase } from "@/lib/supabase";
 
 const DEPLOY_STEPS = [
-  "Signing with Privy wallet…",
-  "Deploying token on Flaunch…",
-  "Provisioning Conway sandbox…",
-  "Generating agent wallet…",
+  "Deploying token on Flaunch (Base)…",
+  "Token live — confirming on-chain…",
+  "Creating agent record…",
+  "Spinning up Conway sandbox…",
+  "Agent wallet funded — $0.50 credits…",
   "Writing genesis prompt…",
-  "Activating automaton…",
   "Agent is ALIVE ⚡",
 ];
 
@@ -216,18 +216,47 @@ export default function LaunchPage() {
             />
           </div>
 
-          {/* Funding */}
+          {/* Agent Image */}
           <div>
             <label className="text-[var(--alife-dim)] text-[9px] block mb-1 font-mono uppercase tracking-[1.5px]">
-              Initial Funding (USDC)
+              Agent Image
             </label>
-            <input
-              className="w-full bg-[rgba(0,255,170,0.03)] border border-[var(--alife-border)] rounded-[10px] py-3 px-3.5 text-white text-sm outline-none"
-              type="number"
-              min="1"
-              value={form.funding}
-              onChange={(e) => f("funding", e.target.value)}
-            />
+            <div className="relative">
+              {form.image ? (
+                <div className="flex items-center gap-3">
+                  <img 
+                    src={form.image} 
+                    alt="preview" 
+                    className="w-16 h-16 rounded-lg object-cover border border-[var(--alife-border)]" 
+                  />
+                  <button 
+                    onClick={() => f("image", "")} 
+                    className="text-[var(--alife-dim)] text-xs hover:text-white"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <label className="flex items-center justify-center w-full h-[80px] bg-[rgba(0,255,170,0.03)] border border-dashed border-[var(--alife-border)] rounded-[10px] cursor-pointer hover:border-[var(--alife-accent)] transition-colors">
+                  <span className="text-[var(--alife-dim)] text-xs">Click to upload image</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          f("image", reader.result as string);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                  />
+                </label>
+              )}
+            </div>
           </div>
 
           {/* Launch Sequence Info */}

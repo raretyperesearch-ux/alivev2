@@ -1,26 +1,36 @@
-// @ts-nocheck
 /**
- * ALiFe × Flaunch Integration
+ * Alive Agents v2 × Flaunch Integration
  * 
  * Uses @flaunch/sdk to:
- * 1. Deploy a RevenueManager (one-time, sets ALiFe's 30% cut)
+ * 1. Deploy a RevenueManager (one-time, sets fee split)
  * 2. Flaunch tokens into the RevenueManager on behalf of creators
  * 3. Check balances and claim fees
+ * 
+ * Install: npm install @flaunch/sdk viem
  */
 
-import { createFlaunch, FlaunchAddress, FlaunchV1_1Address } from "@flaunch/sdk";
-import { createPublicClient, createWalletClient, http, custom } from "viem";
+import { createFlaunch, type ReadWriteFlaunchSDK, FlaunchAddress, FlaunchV1_1Address } from "@flaunch/sdk";
+import { createPublicClient, createWalletClient, http, custom, type WalletClient, type PublicClient } from "viem";
 import { base } from "viem/chains";
+
+// Type for parsed pool creation data
+interface PoolCreatedEventData {
+  memecoin: string;
+  tokenId: bigint;
+  [key: string]: any;
+}
 
 // ============================================
 // CONFIG
 // ============================================
 
-const ALIFE_TREASURY = process.env.NEXT_PUBLIC_ALIFE_TREASURY;
+// Platform treasury — receives protocol fees
+const ALIFE_TREASURY = process.env.NEXT_PUBLIC_ALIFE_TREASURY as `0x${string}`;
 const ALIFE_PROTOCOL_FEE_PERCENT = 30;
 
-let REVENUE_MANAGER_ADDRESS =
-  process.env.NEXT_PUBLIC_REVENUE_MANAGER_ADDRESS || null;
+// RevenueManager deployed on Base mainnet
+let REVENUE_MANAGER_ADDRESS: `0x${string}` | null = 
+  (process.env.NEXT_PUBLIC_REVENUE_MANAGER_ADDRESS as `0x${string}`) || null;
 
 // ============================================
 // CLIENT SETUP
@@ -31,13 +41,20 @@ const publicClient = createPublicClient({
   transport: http(process.env.NEXT_PUBLIC_BASE_RPC_URL || "https://mainnet.base.org"),
 });
 
-export function createFlaunchSDK(walletClient) {
+/**
+ * Create a Flaunch SDK instance with write capabilities
+ * Pass the walletClient from Privy
+ */
+export function createFlaunchSDK(walletClient: WalletClient) {
   return createFlaunch({
     publicClient,
     walletClient,
-  });
+  }) as any; // SDK types may vary between versions
 }
 
+/**
+ * Create a read-only Flaunch SDK instance
+ */
 export function createFlaunchReadSDK() {
   return createFlaunch({ publicClient });
 }
@@ -46,7 +63,11 @@ export function createFlaunchReadSDK() {
 // ONE-TIME SETUP: Deploy RevenueManager
 // ============================================
 
-export async function deployRevenueManager(walletClient) {
+/**
+ * Deploy ALiFe's RevenueManager contract (call once, then store the address)
+ * This sets up the 70/30 split: 70% creator, 30% ALiFe
+ */
+export async function deployRevenueManager(walletClient: WalletClient): Promise<`0x${string}`> {
   const flaunch = createFlaunchSDK(walletClient);
   
   const revenueManagerAddress = await flaunch.deployRevenueManager({
@@ -54,16 +75,47 @@ export async function deployRevenueManager(walletClient) {
     protocolFeePercent: ALIFE_PROTOCOL_FEE_PERCENT,
   });
 
-  REVENUE_MANAGER_ADDRESS = revenueManagerAddress;
+  REVENUE_MANAGER_ADDRESS = revenueManagerAddress as `0x${string}`;
   console.log("RevenueManager deployed at:", revenueManagerAddress);
-  return revenueManagerAddress;
+  
+  // IMPORTANT: Store this address in your env vars / database
+  // You only need to deploy this ONCE
+  return revenueManagerAddress as `0x${string}`;
 }
 
 // ============================================
 // LAUNCH: Flaunch a token for a new agent
 // ============================================
 
-export async function flaunchAgentToken(walletClient, params) {
+export interface LaunchAgentTokenParams {
+  name: string;
+  symbol: string;
+  description: string;
+  imageBase64: string; // base64 encoded image from user upload
+  creatorAddress: `0x${string}`;
+  initialMarketCapUSD?: number;
+  creatorFeeAllocationPercent?: number;
+  fairLaunchDurationSeconds?: number;
+  websiteUrl?: string;
+  twitterUrl?: string;
+  telegramUrl?: string;
+}
+
+export interface LaunchResult {
+  txHash: `0x${string}`;
+  memecoinAddress: `0x${string}`;
+  tokenId: number;
+  poolAddress: `0x${string}` | null;
+}
+
+/**
+ * Flaunch a token for a new Alive Agent
+ * Uses flaunchIPFSWithRevenueManager so fees auto-split
+ */
+export async function flaunchAgentToken(
+  walletClient: WalletClient,
+  params: LaunchAgentTokenParams
+): Promise<LaunchResult> {
   if (!REVENUE_MANAGER_ADDRESS) {
     throw new Error("RevenueManager not deployed. Call deployRevenueManager() first.");
   }
@@ -71,14 +123,16 @@ export async function flaunchAgentToken(walletClient, params) {
   const flaunch = createFlaunchSDK(walletClient);
   const flaunchRead = createFlaunchReadSDK();
 
-  const hash = await flaunch.flaunchIPFS({
+  // Use flaunchIPFSWithRevenueManager — NFT goes to RevenueManager for auto fee split
+  const hash = await flaunch.flaunchIPFSWithRevenueManager({
     name: params.name,
     symbol: params.symbol,
-    creator: REVENUE_MANAGER_ADDRESS,
+    creator: params.creatorAddress,
     creatorFeeAllocationPercent: params.creatorFeeAllocationPercent ?? 80,
     fairLaunchPercent: 0,
     fairLaunchDuration: params.fairLaunchDurationSeconds ?? 30 * 60,
     initialMarketCapUSD: params.initialMarketCapUSD ?? 10_000,
+    revenueManagerInstanceAddress: REVENUE_MANAGER_ADDRESS,
     metadata: {
       base64Image: params.imageBase64,
       description: params.description,
@@ -88,7 +142,8 @@ export async function flaunchAgentToken(walletClient, params) {
     },
   });
 
-  const poolData = await flaunchRead.getPoolCreatedFromTx(hash);
+  // Parse the transaction to get token details
+  const poolData = await flaunchRead.getPoolCreatedFromTx(hash) as PoolCreatedEventData | null;
 
   if (!poolData) {
     throw new Error("Failed to parse flaunch transaction");
@@ -96,9 +151,9 @@ export async function flaunchAgentToken(walletClient, params) {
 
   return {
     txHash: hash,
-    memecoinAddress: poolData.memecoin,
+    memecoinAddress: poolData.memecoin as `0x${string}`,
     tokenId: Number(poolData.tokenId),
-    poolAddress: poolData.poolAddress || null,
+    poolAddress: (poolData as any).poolAddress || null,
   };
 }
 
@@ -106,61 +161,109 @@ export async function flaunchAgentToken(walletClient, params) {
 // FEE CLAIMING
 // ============================================
 
-export async function getCreatorClaimableBalance(creatorAddress) {
+/**
+ * Check how much ETH a creator can claim from their agent tokens
+ */
+export async function getCreatorClaimableBalance(
+  creatorAddress: `0x${string}`
+): Promise<bigint> {
   if (!REVENUE_MANAGER_ADDRESS) return 0n;
+  
   const flaunchRead = createFlaunchReadSDK();
-  return flaunchRead.revenueManagerBalance({
+  const balance = await flaunchRead.revenueManagerBalance({
     revenueManagerAddress: REVENUE_MANAGER_ADDRESS,
     recipient: creatorAddress,
   });
+
+  return balance;
 }
 
-export async function getPlatformClaimableBalance() {
+/**
+ * Check how much ETH ALiFe platform can claim
+ */
+export async function getPlatformClaimableBalance(): Promise<bigint> {
   if (!REVENUE_MANAGER_ADDRESS) return 0n;
+  
   const flaunchRead = createFlaunchReadSDK();
-  return flaunchRead.revenueManagerBalance({
+  const balance = await flaunchRead.revenueManagerBalance({
     revenueManagerAddress: REVENUE_MANAGER_ADDRESS,
     recipient: ALIFE_TREASURY,
   });
+
+  return balance;
 }
 
-export async function claimCreatorFees(walletClient) {
-  if (!REVENUE_MANAGER_ADDRESS) throw new Error("RevenueManager not deployed");
+/**
+ * Creator claims their 70% of accumulated fees (in ETH)
+ */
+export async function claimCreatorFees(walletClient: WalletClient): Promise<`0x${string}`> {
+  if (!REVENUE_MANAGER_ADDRESS) {
+    throw new Error("RevenueManager not deployed");
+  }
+
   const flaunch = createFlaunchSDK(walletClient);
-  return flaunch.revenueManagerCreatorClaim({
+  const hash = await flaunch.revenueManagerCreatorClaim({
     revenueManagerAddress: REVENUE_MANAGER_ADDRESS,
   });
+
+  return hash;
 }
 
-export async function claimCreatorFeesForTokens(walletClient, tokenIds) {
-  if (!REVENUE_MANAGER_ADDRESS) throw new Error("RevenueManager not deployed");
+/**
+ * Creator claims fees for specific token IDs
+ */
+export async function claimCreatorFeesForTokens(
+  walletClient: WalletClient,
+  tokenIds: number[]
+): Promise<`0x${string}`> {
+  if (!REVENUE_MANAGER_ADDRESS) {
+    throw new Error("RevenueManager not deployed");
+  }
+
   const flaunch = createFlaunchSDK(walletClient);
-  return flaunch.revenueManagerCreatorClaimForTokens({
+  const hash = await flaunch.revenueManagerCreatorClaimForTokens({
     revenueManagerAddress: REVENUE_MANAGER_ADDRESS,
-    flaunchTokens: tokenIds.map((id) => ({
+    flaunchTokens: tokenIds.map(id => ({
       flaunch: FlaunchV1_1Address[base.id],
       tokenId: id,
     })),
   });
+
+  return hash;
 }
 
-export async function claimPlatformFees(walletClient) {
-  if (!REVENUE_MANAGER_ADDRESS) throw new Error("RevenueManager not deployed");
+/**
+ * ALiFe platform claims its 30% cut
+ * (Only callable by ALIFE_TREASURY wallet)
+ */
+export async function claimPlatformFees(walletClient: WalletClient): Promise<`0x${string}`> {
+  if (!REVENUE_MANAGER_ADDRESS) {
+    throw new Error("RevenueManager not deployed");
+  }
+
   const flaunch = createFlaunchSDK(walletClient);
-  return flaunch.revenueManagerProtocolClaim({
+  const hash = await flaunch.revenueManagerProtocolClaim({
     revenueManagerAddress: REVENUE_MANAGER_ADDRESS,
   });
+
+  return hash;
 }
 
 // ============================================
 // READ HELPERS
 // ============================================
 
-export async function getTokenMetadata(coinAddress) {
+/**
+ * Get token metadata (name, symbol, image) for a flaunched coin
+ */
+export async function getTokenMetadata(coinAddress: `0x${string}`) {
   const flaunchRead = createFlaunchReadSDK();
   return flaunchRead.getCoinMetadata(coinAddress);
 }
 
-export function getRevenueManagerAddress() {
+/**
+ * Get the RevenueManager address (for display purposes)
+ */
+export function getRevenueManagerAddress(): `0x${string}` | null {
   return REVENUE_MANAGER_ADDRESS;
 }
