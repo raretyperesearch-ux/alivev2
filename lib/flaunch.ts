@@ -103,11 +103,15 @@ export async function flaunchAgentToken(
     fairLaunchPercent: 0,
     fairLaunchDuration: 30 * 60,
     initialMarketCapUSD: params.initialMarketCapUSD ?? 1_000,
-    creatorSplitPercent: CREATOR_SPLIT_PERCENT,
+    // SDK math: creator gets remainder = TOTAL - recipientShares - ownerShare
+    // So set creatorSplitPercent to 0 (remainder logic gives creator 70%)
+    // and splitReceivers to 30% (platform cut)
+    creatorSplitPercent: 0,
+    managerOwnerSplitPercent: 0,
     splitReceivers: [
       {
         address: ALIFE_TREASURY,
-        percent: 100,
+        percent: 30, // Platform gets 30%, creator gets remaining 70%
       },
     ],
     metadata: {
