@@ -158,8 +158,46 @@ export async function flaunchAgentToken(
 }
 
 // ============================================
-// FEE CLAIMING
+// FEE CLAIMING (direct viem calls, bypasses SDK)
 // ============================================
+
+const REVENUE_MANAGER_ABI = [
+  {
+    inputs: [],
+    name: "claim",
+    outputs: [{ internalType: "uint256", name: "amount_", type: "uint256" }],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "address", name: "", type: "address" }],
+    name: "balances",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "protocolRecipient",
+    outputs: [{ internalType: "address payable", name: "", type: "address" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "protocolFee",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "protocolTotalClaimed",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const;
 
 /**
  * Check how much ETH a creator can claim from their agent tokens
@@ -169,13 +207,18 @@ export async function getCreatorClaimableBalance(
 ): Promise<bigint> {
   if (!REVENUE_MANAGER_ADDRESS) return BigInt(0);
   
-  const flaunchRead = createFlaunchReadSDK();
-  const balance = await flaunchRead.revenueManagerBalance({
-    revenueManagerAddress: REVENUE_MANAGER_ADDRESS,
-    recipient: creatorAddress,
-  });
-
-  return balance;
+  try {
+    const balance = await publicClient.readContract({
+      address: REVENUE_MANAGER_ADDRESS,
+      abi: REVENUE_MANAGER_ABI,
+      functionName: "balances",
+      args: [creatorAddress],
+    });
+    return balance as bigint;
+  } catch (err) {
+    console.warn("Failed to read creator balance:", err);
+    return BigInt(0);
+  }
 }
 
 /**
@@ -184,49 +227,42 @@ export async function getCreatorClaimableBalance(
 export async function getPlatformClaimableBalance(): Promise<bigint> {
   if (!REVENUE_MANAGER_ADDRESS) return BigInt(0);
   
-  const flaunchRead = createFlaunchReadSDK();
-  const balance = await flaunchRead.revenueManagerBalance({
-    revenueManagerAddress: REVENUE_MANAGER_ADDRESS,
-    recipient: ALIFE_TREASURY,
-  });
+  try {
+    // First get the protocol recipient from the contract
+    const recipient = await publicClient.readContract({
+      address: REVENUE_MANAGER_ADDRESS,
+      abi: REVENUE_MANAGER_ABI,
+      functionName: "protocolRecipient",
+    });
 
-  return balance;
+    const balance = await publicClient.readContract({
+      address: REVENUE_MANAGER_ADDRESS,
+      abi: REVENUE_MANAGER_ABI,
+      functionName: "balances",
+      args: [recipient as `0x${string}`],
+    });
+    return balance as bigint;
+  } catch (err) {
+    console.warn("Failed to read platform balance:", err);
+    return BigInt(0);
+  }
 }
 
 /**
- * Creator claims their 70% of accumulated fees (in ETH)
+ * Creator claims their fees (calls claim() on RevenueManager)
  */
 export async function claimCreatorFees(walletClient: WalletClient): Promise<`0x${string}`> {
   if (!REVENUE_MANAGER_ADDRESS) {
     throw new Error("RevenueManager not deployed");
   }
 
-  const flaunch = createFlaunchSDK(walletClient);
-  const hash = await flaunch.revenueManagerCreatorClaim({
-    revenueManagerAddress: REVENUE_MANAGER_ADDRESS,
-  });
-
-  return hash;
-}
-
-/**
- * Creator claims fees for specific token IDs
- */
-export async function claimCreatorFeesForTokens(
-  walletClient: WalletClient,
-  tokenIds: number[]
-): Promise<`0x${string}`> {
-  if (!REVENUE_MANAGER_ADDRESS) {
-    throw new Error("RevenueManager not deployed");
-  }
-
-  const flaunch = createFlaunchSDK(walletClient);
-  const hash = await flaunch.revenueManagerCreatorClaimForTokens({
-    revenueManagerAddress: REVENUE_MANAGER_ADDRESS,
-    flaunchTokens: tokenIds.map(id => ({
-      flaunch: FlaunchV1_1Address[base.id],
-      tokenId: id,
-    })),
+  const [account] = await walletClient.getAddresses();
+  const hash = await walletClient.writeContract({
+    address: REVENUE_MANAGER_ADDRESS,
+    abi: REVENUE_MANAGER_ABI,
+    functionName: "claim",
+    account,
+    chain: base,
   });
 
   return hash;
@@ -234,16 +270,20 @@ export async function claimCreatorFeesForTokens(
 
 /**
  * ALiFe platform claims its 30% cut
- * (Only callable by ALIFE_TREASURY wallet)
+ * (Only callable by the protocolRecipient wallet)
  */
 export async function claimPlatformFees(walletClient: WalletClient): Promise<`0x${string}`> {
   if (!REVENUE_MANAGER_ADDRESS) {
     throw new Error("RevenueManager not deployed");
   }
 
-  const flaunch = createFlaunchSDK(walletClient);
-  const hash = await flaunch.revenueManagerProtocolClaim({
-    revenueManagerAddress: REVENUE_MANAGER_ADDRESS,
+  const [account] = await walletClient.getAddresses();
+  const hash = await walletClient.writeContract({
+    address: REVENUE_MANAGER_ADDRESS,
+    abi: REVENUE_MANAGER_ABI,
+    functionName: "claim",
+    account,
+    chain: base,
   });
 
   return hash;
