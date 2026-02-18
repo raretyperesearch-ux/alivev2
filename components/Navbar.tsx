@@ -19,7 +19,7 @@ export default function Navbar() {
           ◈
         </div>
         <span className="font-display font-extrabold text-base text-white tracking-[3px]">
-          A<span className="text-[var(--alife-accent)]">Li</span>Fe
+          Alive <span className="text-[var(--alife-accent)]">Agents</span> v2
         </span>
       </Link>
 

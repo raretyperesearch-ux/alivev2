@@ -42,18 +42,18 @@ export default function HomePage() {
           <div className="absolute top-[-40px] left-1/2 -translate-x-1/2 w-[500px] h-[400px] bg-[radial-gradient(ellipse,rgba(0,255,170,0.04)_0%,transparent_65%)] pointer-events-none" />
 
           <div className="font-mono text-[9px] text-[rgba(0,255,170,0.4)] tracking-[6px] uppercase mb-5">
-            Artificial Life Engine
+            Autonomous Agent Launchpad
           </div>
 
           <h1 className="font-display text-[42px] font-extrabold text-white m-0 mb-2 leading-tight tracking-tight">
-            A<span className="text-[var(--alife-accent)]">Li</span>Fe
+            Alive <span className="text-[var(--alife-accent)]">Agents</span> v2
           </h1>
 
           <p className="text-[var(--alife-dim)] text-[15px] max-w-[480px] mx-auto mt-3 mb-8 leading-relaxed">
             Launch a token. Activate an autonomous AI agent.
             <br />
             It earns. You earn.{" "}
-            <span className="text-[var(--alife-accent)]">70 / 30.</span>
+            <span className="text-[var(--alife-accent)]">Powered by Conway.</span>
           </p>
 
           {authenticated ? (
@@ -111,7 +111,7 @@ export default function HomePage() {
 
       {/* Footer */}
       <footer className="text-center py-5 border-t border-[var(--alife-border)] text-[var(--alife-muted)] text-[9px] font-mono tracking-[1px]">
-        ALiFe · Conway × Flaunch · Privy · Base L2 · 70/30
+        Alive Agents v2 · Conway × Flaunch · Privy · Base L2
       </footer>
     </div>
   );

@@ -6,7 +6,6 @@ import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { createWalletClient, custom } from "viem";
 import { base } from "viem/chains";
 import Navbar from "@/components/Navbar";
-import FeeSplit from "@/components/FeeSplit";
 import { launchAgent } from "@/lib/launch";
 import { supabase } from "@/lib/supabase";
 
@@ -231,20 +230,17 @@ export default function LaunchPage() {
             />
           </div>
 
-          {/* Fee Split */}
-          <FeeSplit creator={70} platform={30} />
-
           {/* Launch Sequence Info */}
           <div className="card p-4 border-[rgba(0,255,170,0.12)]">
             <div className="text-[var(--alife-dim)] text-[9px] font-mono uppercase tracking-[1.5px] mb-2">
               Launch Sequence
             </div>
             {[
-              "Token deploys on Flaunch (Base) with 70/30 fee split",
+              "Token deploys on Flaunch (Base)",
               "Conway automaton spins up with its own wallet",
               "Agent receives genesis prompt → Think→Act→Observe loop",
-              "Every swap generates 1% fees — 70% yours, 30% ALiFe",
-              "Fund your agent anytime from your claimed earnings",
+              "Every swap generates fees for the creator",
+              "Fund your agent anytime from your earnings",
             ].map((s, i) => (
               <div
                 key={i}

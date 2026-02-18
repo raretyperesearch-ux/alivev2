@@ -3,12 +3,12 @@ import PrivyWrapper from "@/components/PrivyWrapper";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ALiFe — Artificial Life Engine",
-  description: "Launch a token. Activate an autonomous AI agent. It earns. You earn. 40/40/20.",
+  title: "Alive Agents v2",
+  description: "Launch a token. Activate an autonomous AI agent. Powered by Conway.",
   openGraph: {
-    title: "ALiFe — Artificial Life Engine",
+    title: "Alive Agents v2",
     description: "Launch autonomous AI agents with token-backed economics on Base L2.",
-    siteName: "ALiFe",
+    siteName: "Alive Agents",
   },
 };
 
