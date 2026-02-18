@@ -99,10 +99,10 @@ export async function flaunchAgentToken(
     name: params.name,
     symbol: params.symbol,
     creator: params.creatorAddress,
-    creatorFeeAllocationPercent: params.creatorFeeAllocationPercent ?? 80,
-    fairLaunchPercent: 40,
-    fairLaunchDuration: params.fairLaunchDurationSeconds ?? (30 * 60),
-    initialMarketCapUSD: params.initialMarketCapUSD ?? 10_000,
+    creatorFeeAllocationPercent: 100,
+    fairLaunchPercent: 0,
+    fairLaunchDuration: 30 * 60,
+    initialMarketCapUSD: params.initialMarketCapUSD ?? 1_000,
     creatorSplitPercent: CREATOR_SPLIT_PERCENT,
     splitReceivers: [
       {
@@ -113,9 +113,6 @@ export async function flaunchAgentToken(
     metadata: {
       base64Image: params.imageBase64,
       description: params.description,
-      websiteUrl: params.websiteUrl,
-      twitterUrl: params.twitterUrl,
-      telegramUrl: params.telegramUrl,
     },
   };
 
