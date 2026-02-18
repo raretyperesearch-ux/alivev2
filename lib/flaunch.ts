@@ -167,7 +167,7 @@ export async function flaunchAgentToken(
 export async function getCreatorClaimableBalance(
   creatorAddress: `0x${string}`
 ): Promise<bigint> {
-  if (!REVENUE_MANAGER_ADDRESS) return 0n;
+  if (!REVENUE_MANAGER_ADDRESS) return BigInt(0);
   
   const flaunchRead = createFlaunchReadSDK();
   const balance = await flaunchRead.revenueManagerBalance({
@@ -182,7 +182,7 @@ export async function getCreatorClaimableBalance(
  * Check how much ETH ALiFe platform can claim
  */
 export async function getPlatformClaimableBalance(): Promise<bigint> {
-  if (!REVENUE_MANAGER_ADDRESS) return 0n;
+  if (!REVENUE_MANAGER_ADDRESS) return BigInt(0);
   
   const flaunchRead = createFlaunchReadSDK();
   const balance = await flaunchRead.revenueManagerBalance({
