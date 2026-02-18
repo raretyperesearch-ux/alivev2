@@ -119,7 +119,7 @@ function encodeAddressFeeSplitInitData(
 
   const recipientShares = recipients.map((r) => ({
     recipient: r.address,
-    share: (BigInt(r.percent) * VALID_SHARE_TOTAL) / 100n,
+    share: (BigInt(r.percent) * VALID_SHARE_TOTAL) / BigInt(100),
   }));
 
   return encodeAbiParameters(
