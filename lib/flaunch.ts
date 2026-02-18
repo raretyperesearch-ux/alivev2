@@ -95,19 +95,18 @@ export async function flaunchAgentToken(
   const flaunch = createFlaunchSDK(walletClient);
   const flaunchRead = createFlaunchReadSDK();
 
-  const hash = await flaunch.flaunchIPFSWithSplitManager({
+  const launchParams = {
     name: params.name,
     symbol: params.symbol,
     creator: params.creatorAddress,
     creatorFeeAllocationPercent: params.creatorFeeAllocationPercent ?? 80,
-    fairLaunchPercent: 0,
-    fairLaunchDuration: params.fairLaunchDurationSeconds ?? 30 * 60,
+    fairLaunchPercent: 40,
+    fairLaunchDuration: params.fairLaunchDurationSeconds ?? (30 * 60),
     initialMarketCapUSD: params.initialMarketCapUSD ?? 10_000,
-    // Split manager params
-    creatorSplitPercent: CREATOR_SPLIT_PERCENT, // 70% to creator
+    creatorSplitPercent: CREATOR_SPLIT_PERCENT,
     splitReceivers: [
       {
-        address: ALIFE_TREASURY, // 100% of the remaining 30% goes to our treasury
+        address: ALIFE_TREASURY,
         percent: 100,
       },
     ],
@@ -118,7 +117,14 @@ export async function flaunchAgentToken(
       twitterUrl: params.twitterUrl,
       telegramUrl: params.telegramUrl,
     },
-  });
+  };
+
+  console.log("[flaunch] Launch params:", JSON.stringify({
+    ...launchParams,
+    metadata: { ...launchParams.metadata, base64Image: launchParams.metadata.base64Image?.slice(0, 50) + "..." },
+  }, null, 2));
+
+  const hash = await flaunch.flaunchIPFSWithSplitManager(launchParams);
 
   // Parse the transaction to get token details
   const poolData = await flaunchRead.getPoolCreatedFromTx(hash) as PoolCreatedEventData | null;
