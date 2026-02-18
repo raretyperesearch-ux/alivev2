@@ -84,7 +84,6 @@ export default function LaunchPage() {
       });
 
       console.log("[LaunchPage] Starting launch with wallet:", wallet.address);
-      console.log("[LaunchPage] RevenueManager env:", process.env.NEXT_PUBLIC_REVENUE_MANAGER_ADDRESS);
 
       // Run the full launch: Flaunch token → Supabase → Conway agent
       const result = await launchAgent(

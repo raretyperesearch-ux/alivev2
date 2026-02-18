@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { createWalletClient, createPublicClient, custom, http, formatEther } from "viem";
 import { base } from "viem/chains";
 import Navbar from "@/components/Navbar";
+import { supabase } from "@/lib/supabase";
 
 const ALIFE_TREASURY = "0xA660a38f40a519F2E351Cc9A5CA2f5feE1a9BE0D";
-const PROTOCOL_FEE_PERCENT = 30;
 
 // Only these wallets can access the admin page
 const ADMIN_WALLETS = [
@@ -15,19 +15,24 @@ const ADMIN_WALLETS = [
   "0x73927100dcfa2c29dd330191a291d42560c90e8e",
 ];
 
+interface AgentFeeInfo {
+  id: string;
+  name: string;
+  token_address: string | null;
+  split_manager_address: string | null;
+  claimable: string;
+}
+
 export default function AdminPage() {
-  const { authenticated, login, user } = usePrivy();
+  const { authenticated, login } = usePrivy();
   const { wallets } = useWallets();
 
-  const [status, setStatus] = useState<string>("");
-  const [deploying, setDeploying] = useState(false);
-  const [deployedAddress, setDeployedAddress] = useState<string | null>(null);
   const [balance, setBalance] = useState<string | null>(null);
-  const [error, setError] = useState<string>("");
-  const [platformClaimable, setPlatformClaimable] = useState("0.000000");
-  const [claimingPlatform, setClaimingPlatform] = useState(false);
+  const [error, setError] = useState("");
+  const [agents, setAgents] = useState<AgentFeeInfo[]>([]);
+  const [loadingAgents, setLoadingAgents] = useState(false);
+  const [claimingId, setClaimingId] = useState<string | null>(null);
   const [claimStatus, setClaimStatus] = useState("");
-  const [claimErr, setClaimErr] = useState("");
 
   const wallet = wallets?.[0];
   const isAdmin = wallet && ADMIN_WALLETS.includes(wallet.address.toLowerCase());
@@ -35,34 +40,57 @@ export default function AdminPage() {
   const checkBalance = async () => {
     if (!wallet) return;
     try {
-      const publicClient = createPublicClient({
-        chain: base,
-        transport: http("https://mainnet.base.org"),
-      });
-      const bal = await publicClient.getBalance({
-        address: wallet.address as `0x${string}`,
-      });
+      const pc = createPublicClient({ chain: base, transport: http("https://mainnet.base.org") });
+      const bal = await pc.getBalance({ address: wallet.address as `0x${string}` });
       setBalance(formatEther(bal));
     } catch (err: any) {
       setError("Failed to check balance: " + err.message);
     }
   };
 
-  const refreshPlatformBalance = async () => {
+  // Load agents and check their claimable fees
+  const loadAgentFees = async () => {
+    setLoadingAgents(true);
     try {
+      const { data: agentsData } = await supabase
+        .from("agents")
+        .select("id, name, token_address, split_manager_address")
+        .not("token_address", "is", null);
+
+      if (!agentsData || agentsData.length === 0) {
+        setAgents([]);
+        setLoadingAgents(false);
+        return;
+      }
+
       const { getPlatformClaimableBalance } = await import("@/lib/flaunch");
-      const bal = await getPlatformClaimableBalance();
-      setPlatformClaimable(parseFloat(formatEther(bal)).toFixed(6));
+
+      const withBalances = await Promise.all(
+        agentsData.map(async (a) => {
+          let claimable = "0";
+          if (a.split_manager_address) {
+            try {
+              const bal = await getPlatformClaimableBalance(a.split_manager_address as `0x${string}`);
+              claimable = parseFloat(formatEther(bal)).toFixed(6);
+            } catch {}
+          }
+          return { ...a, claimable };
+        })
+      );
+
+      setAgents(withBalances);
     } catch (err: any) {
-      console.warn("Failed to fetch platform balance:", err);
+      console.error("Failed to load agents:", err);
+    } finally {
+      setLoadingAgents(false);
     }
   };
 
-  const handleClaimPlatformFees = async () => {
-    if (!wallet || claimingPlatform) return;
-    setClaimingPlatform(true);
-    setClaimErr("");
-    setClaimStatus("Preparing transaction...");
+  const handleClaim = async (agent: AgentFeeInfo) => {
+    if (!wallet || !agent.split_manager_address) return;
+    setClaimingId(agent.id);
+    setClaimStatus("Sign tx in wallet...");
+    setError("");
 
     try {
       await wallet.switchChain(base.id);
@@ -73,90 +101,18 @@ export default function AdminPage() {
         transport: custom(provider),
       });
 
-      setClaimStatus("Sign the transaction in your wallet...");
       const { claimPlatformFees } = await import("@/lib/flaunch");
-      const txHash = await claimPlatformFees(wc);
+      const txHash = await claimPlatformFees(wc, agent.split_manager_address as `0x${string}`);
+      setClaimStatus(`✅ Claimed! ${txHash.slice(0, 14)}…`);
 
-      setClaimStatus(`✅ Claimed! Tx: ${txHash.slice(0, 14)}…`);
-      
-      // Refresh balance
-      await refreshPlatformBalance();
+      // Refresh
+      await loadAgentFees();
     } catch (err: any) {
-      console.error("Platform claim error:", err);
-      setClaimErr(err.message || "Claim failed");
+      console.error("Claim error:", err);
+      setError(err.message || "Claim failed");
       setClaimStatus("");
     } finally {
-      setClaimingPlatform(false);
-    }
-  };
-
-  const deployRevenueManager = async () => {
-    if (!wallet) return;
-    setDeploying(true);
-    setError("");
-    setStatus("Getting wallet provider...");
-
-    try {
-      const provider = await wallet.getEthereumProvider();
-
-      // Ensure we're on Base
-      setStatus("Switching to Base network...");
-      try {
-        await provider.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: "0x2105" }], // 8453 in hex
-        });
-      } catch (switchErr: any) {
-        // If Base isn't added, add it
-        if (switchErr.code === 4902) {
-          await provider.request({
-            method: "wallet_addEthereumChain",
-            params: [{
-              chainId: "0x2105",
-              chainName: "Base",
-              nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-              rpcUrls: ["https://mainnet.base.org"],
-              blockExplorerUrls: ["https://basescan.org"],
-            }],
-          });
-        }
-      }
-
-      setStatus("Creating Flaunch SDK instance...");
-
-      const publicClient = createPublicClient({
-        chain: base,
-        transport: http("https://mainnet.base.org"),
-      });
-
-      const walletClient = createWalletClient({
-        chain: base,
-        transport: custom(provider),
-      });
-
-      // Dynamic import to avoid SSR issues
-      setStatus("Loading Flaunch SDK...");
-      const { createFlaunch } = await import("@flaunch/sdk");
-
-      // @ts-ignore - viem version mismatch
-      const flaunch = createFlaunch({ publicClient, walletClient });
-
-      setStatus("Deploying RevenueManager contract... (confirm in wallet)");
-
-      const revenueManagerAddress = await flaunch.deployRevenueManager({
-        protocolRecipient: ALIFE_TREASURY,
-        protocolFeePercent: PROTOCOL_FEE_PERCENT,
-      });
-
-      setDeployedAddress(revenueManagerAddress as string);
-      setStatus("✅ Deployed successfully!");
-      setDeploying(false);
-
-    } catch (err: any) {
-      console.error("Deploy error:", err);
-      setError(err.message || "Deployment failed");
-      setStatus("");
-      setDeploying(false);
+      setClaimingId(null);
     }
   };
 
@@ -182,9 +138,7 @@ export default function AdminPage() {
         <div className="max-w-[600px] mx-auto p-6 text-center py-20">
           <div className="text-3xl mb-4">🚫</div>
           <p className="text-[var(--alife-red)]">Not authorized</p>
-          <p className="text-[var(--alife-dim)] text-xs mt-2">
-            Wallet: {wallet?.address}
-          </p>
+          <p className="text-[var(--alife-dim)] text-xs mt-2">Wallet: {wallet?.address}</p>
         </div>
       </div>
     );
@@ -195,7 +149,7 @@ export default function AdminPage() {
       <Navbar />
       <main className="max-w-[700px] mx-auto p-6">
         <h1 className="font-display text-2xl font-extrabold text-white mb-1">◈ ALiFe Admin</h1>
-        <p className="text-[var(--alife-dim)] text-xs mb-8">One-time setup tools</p>
+        <p className="text-[var(--alife-dim)] text-xs mb-8">Platform fee management</p>
 
         {/* Wallet Info */}
         <div className="card p-4 mb-6">
@@ -215,128 +169,105 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* Claim Platform Fees - TOP PRIORITY */}
+        {/* Platform Fee Claims */}
         <div className="card p-5 mb-6" style={{ border: "1px solid rgba(0,232,92,0.3)" }}>
-          <h2 className="text-sm font-mono font-bold text-[var(--alife-accent)] mb-2">
-            💰 Platform Fee Claim
-          </h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-mono font-bold text-[var(--alife-accent)]">
+              💰 Platform Fees (30%)
+            </h2>
+            <button
+              onClick={loadAgentFees}
+              disabled={loadingAgents}
+              className="btn-ghost px-3 py-1.5 text-[10px]"
+            >
+              {loadingAgents ? "LOADING..." : "REFRESH ALL"}
+            </button>
+          </div>
+
           <div className="text-[11px] text-[var(--alife-dim)] leading-relaxed mb-4">
-            Claim the platform&apos;s 30% cut from all agent token swap fees.
+            Each agent token has its own SplitManager. Claim your 30% from each below.
           </div>
 
-          <div className="p-3 rounded-lg mb-4" style={{ background: "rgba(0,232,92,0.06)", border: "1px solid rgba(0,232,92,0.15)" }}>
-            <div className="text-[9px] text-[var(--alife-dim)] font-mono uppercase mb-1">Claimable Platform Fees</div>
-            <div className="text-[var(--alife-accent)] font-mono font-bold text-2xl">
-              {platformClaimable} ETH
-            </div>
-          </div>
-
-          <div className="flex gap-2">
-            <button
-              onClick={refreshPlatformBalance}
-              className="btn-ghost px-4 py-2.5 text-[11px]"
-            >
-              REFRESH BALANCE
-            </button>
-            <button
-              onClick={handleClaimPlatformFees}
-              disabled={claimingPlatform || platformClaimable === "0.000000"}
-              className="btn-primary px-6 py-2.5 text-[11px] flex-1"
-              style={{ opacity: (claimingPlatform || platformClaimable === "0.000000") ? 0.5 : 1 }}
-            >
-              {claimingPlatform ? "CLAIMING..." : "CLAIM PLATFORM FEES"}
-            </button>
-          </div>
-
-          {claimStatus && (
-            <div className="mt-3 text-[11px] font-mono text-[var(--alife-accent)]">
-              {claimStatus}
+          {agents.length === 0 && !loadingAgents && (
+            <div className="text-[var(--alife-dim)] text-xs text-center py-4">
+              No agents with tokens found. Hit REFRESH ALL to load.
             </div>
           )}
-          {claimErr && (
-            <div className="mt-3 text-[11px] font-mono text-[var(--alife-red)]">
-              ❌ {claimErr}
+
+          {agents.map((agent) => (
+            <div
+              key={agent.id}
+              className="flex items-center justify-between p-3 rounded-lg mb-2"
+              style={{ background: "rgba(0,232,92,0.04)", border: "1px solid rgba(0,232,92,0.1)" }}
+            >
+              <div>
+                <div className="text-white text-xs font-bold">{agent.name}</div>
+                <div className="text-[var(--alife-dim)] text-[9px] font-mono">
+                  {agent.split_manager_address
+                    ? `SM: ${agent.split_manager_address.slice(0, 10)}…${agent.split_manager_address.slice(-6)}`
+                    : "No SplitManager"}
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-[var(--alife-accent)] font-mono text-sm font-bold">
+                  {agent.claimable} ETH
+                </span>
+                <button
+                  onClick={() => handleClaim(agent)}
+                  disabled={!agent.split_manager_address || claimingId === agent.id || agent.claimable === "0" || agent.claimable === "0.000000"}
+                  className="btn-primary px-3 py-1.5 text-[10px]"
+                  style={{
+                    opacity: (!agent.split_manager_address || agent.claimable === "0" || agent.claimable === "0.000000") ? 0.4 : 1,
+                  }}
+                >
+                  {claimingId === agent.id ? "..." : "CLAIM"}
+                </button>
+              </div>
             </div>
+          ))}
+
+          {claimStatus && (
+            <div className="mt-3 text-[11px] font-mono text-[var(--alife-accent)]">{claimStatus}</div>
+          )}
+          {error && (
+            <div className="mt-3 text-[11px] font-mono text-[var(--alife-red)]">❌ {error}</div>
           )}
         </div>
 
-        {/* Deploy RevenueManager */}
+        {/* Fee Split Info */}
         <div className="card p-5 mb-6">
-          <h2 className="text-sm font-mono font-bold text-white mb-2">
-            1. Deploy RevenueManager
-          </h2>
-          <div className="text-[11px] text-[var(--alife-dim)] leading-relaxed mb-4">
-            This deploys the Flaunch RevenueManager contract on Base mainnet.
-            It enforces the 70/30 fee split for all future agent tokens.
-            You only need to do this <span className="text-white font-bold">once</span>.
-          </div>
-
+          <h2 className="text-sm font-mono font-bold text-white mb-3">Fee Split Info</h2>
           <div className="grid grid-cols-2 gap-3 mb-4">
-            <div className="p-3 rounded-lg" style={{ background: "rgba(0,255,170,0.04)", border: "1px solid rgba(0,255,170,0.1)" }}>
-              <div className="text-[9px] text-[var(--alife-dim)] font-mono uppercase">Creator Fee</div>
+            <div className="p-3 rounded-lg" style={{ background: "rgba(0,232,92,0.04)", border: "1px solid rgba(0,232,92,0.1)" }}>
+              <div className="text-[9px] text-[var(--alife-dim)] font-mono uppercase">Creator</div>
               <div className="text-[var(--alife-accent)] font-mono font-bold text-lg">70%</div>
             </div>
             <div className="p-3 rounded-lg" style={{ background: "rgba(255,208,0,0.04)", border: "1px solid rgba(255,208,0,0.1)" }}>
-              <div className="text-[9px] text-[var(--alife-dim)] font-mono uppercase">ALiFe Platform</div>
+              <div className="text-[9px] text-[var(--alife-dim)] font-mono uppercase">Platform</div>
               <div className="text-[var(--alife-yellow)] font-mono font-bold text-lg">30%</div>
             </div>
           </div>
-
-          <div className="text-[10px] text-[var(--alife-dim)] mb-4 font-mono">
+          <div className="text-[10px] text-[var(--alife-dim)] font-mono">
             Treasury: <span className="text-[var(--alife-yellow)]">{ALIFE_TREASURY}</span>
           </div>
-
-          {!deployedAddress ? (
-            <button
-              onClick={deployRevenueManager}
-              disabled={deploying}
-              className="btn-primary w-full py-3 text-sm"
-              style={{ opacity: deploying ? 0.6 : 1 }}
-            >
-              {deploying ? "DEPLOYING..." : "DEPLOY REVENUE MANAGER"}
-            </button>
-          ) : (
-            <div className="p-4 rounded-lg" style={{ background: "rgba(0,255,170,0.06)", border: "1px solid rgba(0,255,170,0.2)" }}>
-              <div className="text-[var(--alife-accent)] font-mono font-bold text-sm mb-2">
-                ✅ RevenueManager Deployed!
-              </div>
-              <code className="text-white text-xs font-mono block mb-3 break-all">
-                {deployedAddress}
-              </code>
-              <div className="text-[10px] text-[var(--alife-dim)]">
-                Add this to Vercel env vars as:<br />
-                <code className="text-[var(--alife-accent)]">NEXT_PUBLIC_REVENUE_MANAGER_ADDRESS={deployedAddress}</code>
-              </div>
-            </div>
-          )}
-
-          {status && !deployedAddress && (
-            <div className="mt-3 text-[11px] font-mono text-[var(--alife-blue)]">
-              {status}
-            </div>
-          )}
-
-          {error && (
-            <div className="mt-3 text-[11px] font-mono text-[var(--alife-red)]">
-              ❌ {error}
-            </div>
-          )}
+          <div className="text-[10px] text-[var(--alife-dim)] font-mono mt-1">
+            Manager: AddressFeeSplitManager (per-token, no deploy needed)
+          </div>
         </div>
 
         {/* Env Vars Checklist */}
         <div className="card p-5">
           <h2 className="text-sm font-mono font-bold text-white mb-3">
-            3. Vercel Environment Variables
+            Vercel Environment Variables
           </h2>
           <div className="space-y-2 text-[11px] font-mono">
             {[
-              { key: "NEXT_PUBLIC_PRIVY_APP_ID", val: "cml7nar5801lnl10c7mc922qy", set: true },
-              { key: "NEXT_PUBLIC_SUPABASE_URL", val: "https://pppsvntktlzsjflugzge.supabase.co", set: true },
-              { key: "NEXT_PUBLIC_SUPABASE_ANON_KEY", val: "eyJ...(set)", set: true },
-              { key: "NEXT_PUBLIC_ALIFE_TREASURY", val: ALIFE_TREASURY, set: false },
-              { key: "NEXT_PUBLIC_REVENUE_MANAGER_ADDRESS", val: deployedAddress || "deploy first ↑", set: !!deployedAddress },
-              { key: "CONWAY_API_URL", val: "your Railway URL", set: false },
-              { key: "CONWAY_API_KEY", val: "generate one", set: false },
+              { key: "NEXT_PUBLIC_PRIVY_APP_ID", set: true },
+              { key: "NEXT_PUBLIC_SUPABASE_URL", set: true },
+              { key: "NEXT_PUBLIC_SUPABASE_ANON_KEY", set: true },
+              { key: "NEXT_PUBLIC_ALIFE_TREASURY", set: !!process.env.NEXT_PUBLIC_ALIFE_TREASURY },
+              { key: "CONWAY_API_URL", set: !!process.env.CONWAY_API_URL },
+              { key: "CONWAY_API_KEY", set: !!process.env.CONWAY_API_KEY },
             ].map((v) => (
               <div key={v.key} className="flex items-center gap-2">
                 <span className={v.set ? "text-[var(--alife-accent)]" : "text-[var(--alife-red)]"}>
