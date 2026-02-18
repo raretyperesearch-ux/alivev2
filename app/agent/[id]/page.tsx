@@ -616,12 +616,12 @@ export default function AgentPage() {
           {isCreator ? (
             <>
               <button onClick={() => setTab("wallets")} className="btn-ghost flex-1 py-3 text-xs" style={{ color: "#4d9fff", borderColor: "rgba(77,159,255,0.15)" }}>🤖 WALLETS</button>
-              <a href={agent.flaunch_token_address ? `https://flaunch.gg/token/${agent.flaunch_token_address}` : "#"} target="_blank" rel="noopener" className="btn-ghost flex-1 py-3 text-xs text-center no-underline text-[var(--alife-text)]">📊 CHART</a>
+              <a href={"https://wallet.xyz/@AGENTSCREENER"} target="_blank" rel="noopener" className="btn-ghost flex-1 py-3 text-xs text-center no-underline text-[var(--alife-text)]">📊 TRADE</a>
             </>
           ) : (
             <>
-              <a href={agent.flaunch_token_address ? `https://flaunch.gg/token/${agent.flaunch_token_address}` : "#"} target="_blank" rel="noopener" className="btn-primary flex-1 py-3 text-xs text-center no-underline">BUY {agent.ticker}</a>
-              <a href={agent.flaunch_token_address ? `https://flaunch.gg/token/${agent.flaunch_token_address}` : "#"} target="_blank" rel="noopener" className="btn-ghost flex-1 py-3 text-xs text-center no-underline text-[var(--alife-text)]">📊 CHART</a>
+              <a href={"https://wallet.xyz/@AGENTSCREENER"} target="_blank" rel="noopener" className="btn-primary flex-1 py-3 text-xs text-center no-underline">BUY {agent.ticker}</a>
+              <a href={"https://wallet.xyz/@AGENTSCREENER"} target="_blank" rel="noopener" className="btn-ghost flex-1 py-3 text-xs text-center no-underline text-[var(--alife-text)]">📊 TRADE</a>
             </>
           )}
         </div>
