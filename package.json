@@ -13,7 +13,7 @@
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "@privy-io/react-auth": "^1.92.0",
-    "@flaunch/sdk": "^0.8.2",
+    "@flaunch/sdk": "^0.9.16",
     "@supabase/supabase-js": "^2.45.0",
     "viem": "^2.21.0",
     "framer-motion": "^11.5.0"
