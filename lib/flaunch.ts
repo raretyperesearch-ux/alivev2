@@ -158,84 +158,26 @@ export async function flaunchAgentToken(
 }
 
 // ============================================
-// FEE CLAIMING (direct viem calls)
+// FEE CLAIMING (using SDK methods)
 // ============================================
-
-const FEE_ESCROW_ADDRESS = "0x72e6f7948b1B1A343B477F39aAbd2E35E6D27dde" as `0x${string}`;
-
-const FEE_ESCROW_ABI = [
-  {
-    inputs: [{ internalType: "address", name: "_recipient", type: "address" }],
-    name: "balances",
-    outputs: [{ internalType: "uint256", name: "_amount", type: "uint256" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [
-      { internalType: "address", name: "_recipient", type: "address" },
-      { internalType: "bool", name: "_unwrap", type: "bool" },
-    ],
-    name: "withdrawFees",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-] as const;
-
-const REVENUE_MANAGER_ABI = [
-  {
-    inputs: [],
-    name: "claim",
-    outputs: [{ internalType: "uint256", name: "amount_", type: "uint256" }],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [{ internalType: "address", name: "_recipient", type: "address" }],
-    name: "balances",
-    outputs: [{ internalType: "uint256", name: "balance_", type: "uint256" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [],
-    name: "protocolRecipient",
-    outputs: [{ internalType: "address payable", name: "", type: "address" }],
-    stateMutability: "view",
-    type: "function",
-  },
-] as const;
 
 /**
  * Check claimable balance for an address via RevenueManager
- * This calls the RevenueManager which internally checks FeeEscrow + pending
  */
 export async function getCreatorClaimableBalance(
   creatorAddress: `0x${string}`
 ): Promise<bigint> {
   if (!REVENUE_MANAGER_ADDRESS) return BigInt(0);
   try {
-    const balance = await publicClient.readContract({
-      address: REVENUE_MANAGER_ADDRESS,
-      abi: REVENUE_MANAGER_ABI,
-      functionName: "balances",
-      args: [creatorAddress],
+    const flaunchRead = createFlaunchReadSDK();
+    const balance = await flaunchRead.revenueManagerBalance({
+      revenueManagerAddress: REVENUE_MANAGER_ADDRESS,
+      recipient: creatorAddress,
     });
-    return balance as bigint;
+    return balance;
   } catch (err) {
-    console.warn("RevenueManager balances() error:", err);
-    // Fallback: check FeeEscrow for the RevenueManager address
-    try {
-      return await publicClient.readContract({
-        address: FEE_ESCROW_ADDRESS,
-        abi: FEE_ESCROW_ABI,
-        functionName: "balances",
-        args: [REVENUE_MANAGER_ADDRESS],
-      }) as bigint;
-    } catch {
-      return BigInt(0);
-    }
+    console.warn("revenueManagerBalance error:", err);
+    return BigInt(0);
   }
 }
 
@@ -245,63 +187,40 @@ export async function getCreatorClaimableBalance(
 export async function getPlatformClaimableBalance(): Promise<bigint> {
   if (!REVENUE_MANAGER_ADDRESS) return BigInt(0);
   try {
-    const balance = await publicClient.readContract({
-      address: REVENUE_MANAGER_ADDRESS,
-      abi: REVENUE_MANAGER_ABI,
-      functionName: "balances",
-      args: [ALIFE_TREASURY],
+    const flaunchRead = createFlaunchReadSDK();
+    const balance = await flaunchRead.revenueManagerBalance({
+      revenueManagerAddress: REVENUE_MANAGER_ADDRESS,
+      recipient: ALIFE_TREASURY,
     });
-    return balance as bigint;
-  } catch {
-    // Fallback: check FeeEscrow for the RevenueManager address
-    try {
-      return await publicClient.readContract({
-        address: FEE_ESCROW_ADDRESS,
-        abi: FEE_ESCROW_ABI,
-        functionName: "balances",
-        args: [REVENUE_MANAGER_ADDRESS],
-      }) as bigint;
-    } catch {
-      return BigInt(0);
-    }
+    return balance;
+  } catch (err) {
+    console.warn("revenueManagerBalance error:", err);
+    return BigInt(0);
   }
 }
 
 /**
- * Creator claims their 70% fees via RevenueManager
- * The RM internally pulls from FeeEscrow and distributes
+ * Creator claims their 70% fees
  */
 export async function claimCreatorFees(walletClient: WalletClient): Promise<`0x${string}`> {
   if (!REVENUE_MANAGER_ADDRESS) throw new Error("RevenueManager not deployed");
-  const [account] = await walletClient.getAddresses();
-
-  const hash = await walletClient.writeContract({
-    address: REVENUE_MANAGER_ADDRESS,
-    abi: REVENUE_MANAGER_ABI,
-    functionName: "claim",
-    account,
-    chain: base,
+  const flaunch = createFlaunchSDK(walletClient);
+  const hash = await flaunch.revenueManagerCreatorClaim({
+    revenueManagerAddress: REVENUE_MANAGER_ADDRESS,
   });
-
   return hash;
 }
 
 /**
- * Platform claims its 30% via RevenueManager
- * Must be called by the protocolRecipient wallet (0xa660...)
+ * Platform claims its 30%
+ * Must be called by the protocolRecipient wallet
  */
 export async function claimPlatformFees(walletClient: WalletClient): Promise<`0x${string}`> {
   if (!REVENUE_MANAGER_ADDRESS) throw new Error("RevenueManager not deployed");
-  const [account] = await walletClient.getAddresses();
-
-  const hash = await walletClient.writeContract({
-    address: REVENUE_MANAGER_ADDRESS,
-    abi: REVENUE_MANAGER_ABI,
-    functionName: "claim",
-    account,
-    chain: base,
+  const flaunch = createFlaunchSDK(walletClient);
+  const hash = await flaunch.revenueManagerProtocolClaim({
+    revenueManagerAddress: REVENUE_MANAGER_ADDRESS,
   });
-
   return hash;
 }
 
